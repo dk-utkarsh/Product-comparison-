@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dentalkart price comparison · tester</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .verdict-confirmed { background: #dcfce7; color: #166534; }
+    .verdict-possible  { background: #fef9c3; color: #854d0e; }
+    .verdict-variant   { background: #fed7aa; color: #9a3412; }
+    .verdict-rejected  { background: #fee2e2; color: #991b1b; }
+    .cheaper { color: #166534; font-weight: 600; }
+    .pricier { color: #991b1b; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+  <header class="border-b border-slate-200 bg-white">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <div>
+        <h1 class="text-lg font-semibold">Dentalkart price comparison · tester</h1>
+        <p class="text-xs text-slate-500 mt-0.5">
+          Python orchestration · sentence-transformer matching · TS scrapers (bridge)
+        </p>
+      </div>
+      <div class="text-sm text-slate-500">
+        <a class="underline hover:text-slate-700" href="/docs" target="_blank">/docs</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 py-8 space-y-8">
+
+    <section class="bg-white rounded-lg border border-slate-200 p-6">
+      <h2 class="text-base font-semibold mb-1">Drop the Dentalkart product list</h2>
+      <p class="text-sm text-slate-500 mb-4">
+        Excel (<code>.xlsx</code>) with at least a <strong>Product Name</strong> column.
+        Optional: <strong>SKU</strong>, <strong>Brand</strong>, <strong>Price</strong>.
+        For each row we'll search 9 competitors in parallel, match each candidate with the Python pipeline, and show the best price.
+      </p>
+
+      <div class="flex gap-3 items-center mb-3">
+        <div id="dropZone"
+             class="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-8 text-center cursor-pointer hover:bg-slate-50">
+          <p class="text-slate-600">Drop xlsx or <span class="text-blue-600 underline">click to browse</span></p>
+          <input type="file" id="fileInput" accept=".xlsx" class="hidden" />
+        </div>
+        <div class="flex items-center gap-2 text-sm">
+          <label for="concurrency" class="text-slate-600">Concurrency</label>
+          <input id="concurrency" type="number" min="1" max="8" value="2"
+                 class="w-16 border border-slate-300 rounded px-2 py-1" />
+        </div>
+      </div>
+
+      <div id="status" class="text-sm text-slate-500"></div>
+      <pre id="log" class="mt-3 text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded p-2 max-h-40 overflow-auto"></pre>
+    </section>
+
+    <section id="resultsWrap" class="hidden bg-white rounded-lg border border-slate-200 p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-base font-semibold">Results</h2>
+        <div class="text-xs text-slate-500" id="summary"></div>
+      </div>
+      <div id="results"></div>
+    </section>
+
+  </main>
+
+<script>
+const COMPETITORS = [
+  ["pinkblue", "Pinkblue"],
+  ["oralkart", "Oralkart"],
+  ["dentmark", "Dentmark"],
+  ["metroorthodontics", "Metro Ortho"],
+  ["shop4smile", "Shop4Smile"],
+  ["surgicalmart", "SurgicalMart"],
+  ["smilestream", "SmileStream"],
+  ["dentaid", "Dentaid"],
+  ["medikabazar", "Medikabazar"],
+];
+
+const $ = (id) => document.getElementById(id);
+
+function logLine(msg) {
+  const t = new Date().toLocaleTimeString();
+  const el = $("log");
+  if (el) el.textContent += `[${t}] ${msg}\n`;
+  console.log(msg);
+}
+
+window.addEventListener("error", (e) => logLine(`JS ERROR: ${e.message} @ ${e.filename}:${e.lineno}`));
+window.addEventListener("unhandledrejection", (e) => logLine(`PROMISE ERROR: ${e.reason}`));
+
+function verdictBadge(v) {
+  if (!v) return `<span class="text-xs text-slate-400">—</span>`;
+  return `<span class="verdict-${v} text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold">${v}</span>`;
+}
+
+function fmtMoney(n) {
+  if (n == null) return "—";
+  return "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
+}
+
+function fmtDiff(d) {
+  if (d == null) return "";
+  if (d > 0) return `<span class="cheaper">-${fmtMoney(d)} below DK</span>`;
+  if (d < 0) return `<span class="pricier">+${fmtMoney(-d)} above DK</span>`;
+  return `<span class="text-slate-400">= DK</span>`;
+}
+
+function wireDropZone() {
+  const zone = $("dropZone"), input = $("fileInput");
+  if (!zone || !input) {
+    logLine("FATAL: dropZone or fileInput not found in DOM — was the page hard-refreshed after deploy?");
+    return;
+  }
+  logLine("ready · drop xlsx or click the zone");
+  zone.addEventListener("click", () => { logLine("click → opening file picker"); input.click(); });
+  zone.addEventListener("dragover", (e) => {
+    e.preventDefault(); zone.classList.add("bg-blue-50", "border-blue-400");
+  });
+  zone.addEventListener("dragleave", () =>
+    zone.classList.remove("bg-blue-50", "border-blue-400")
+  );
+  zone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    zone.classList.remove("bg-blue-50", "border-blue-400");
+    logLine(`drop event: ${e.dataTransfer.files.length} file(s)`);
+    if (e.dataTransfer.files.length) runBatch(e.dataTransfer.files[0]);
+  });
+  input.addEventListener("change", () => {
+    logLine(`file picker change: ${input.files.length} file(s)`);
+    if (input.files.length) runBatch(input.files[0]);
+  });
+}
+
+async function runBatch(file) {
+  const conc = parseInt($("concurrency").value, 10) || 2;
+  logLine(`runBatch: ${file.name} (${file.size} bytes) · concurrency=${conc}`);
+  $("status").innerHTML = `
+    <span class="text-slate-600">
+      Running <strong>${escapeHtml(file.name)}</strong> at concurrency=${conc}…
+      Each row hits 9 competitor sites; expect ~10-30s per row.
+    </span>
+  `;
+  $("resultsWrap").classList.add("hidden");
+
+  const fd = new FormData();
+  fd.append("file", file);
+
+  const t0 = performance.now();
+  let res;
+  try {
+    logLine("POST /compare/batch …");
+    res = await fetch(`/compare/batch?concurrency=${conc}`, { method: "POST", body: fd });
+  } catch (e) {
+    logLine(`fetch threw: ${e.message}`);
+    $("status").innerHTML = `<span class="text-red-600">Network error: ${e.message}</span>`;
+    return;
+  }
+
+  logLine(`response: ${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    $("status").innerHTML = `<span class="text-red-600">Error: ${err.detail || res.statusText}</span>`;
+    return;
+  }
+
+  const data = await res.json();
+  const seconds = ((performance.now() - t0) / 1000).toFixed(1);
+  logLine(`done in ${seconds}s · ${data.total} rows`);
+  $("status").innerHTML = `
+    <span class="text-green-700 font-medium">Done.</span>
+    Processed ${data.total} rows in ${seconds}s.
+  `;
+  renderResults(data);
+}
+
+function renderResults(data) {
+  const wrap = $("resultsWrap");
+  wrap.classList.remove("hidden");
+
+  const matchCounts = data.results.map((r) =>
+    r.competitors.filter((c) => c.matched_price != null).length
+  );
+  const cheaperCount = data.results.reduce(
+    (n, r) => n + r.competitors.filter((c) => (c.price_diff_vs_dk ?? 0) > 0).length, 0
+  );
+  $("summary").textContent =
+    `${data.total} products · ${matchCounts.reduce((a,b)=>a+b,0)} competitor matches · ${cheaperCount} cheaper-elsewhere`;
+
+  const headerCells = COMPETITORS.map(([id, name]) =>
+    `<th class="px-2 py-2 text-left text-xs uppercase text-slate-600 border-l border-slate-200">${name}</th>`
+  ).join("");
+
+  const rows = data.results.map((r, i) => {
+    const dk = r.dentalkart;
+    const compCells = COMPETITORS.map(([id, _]) => {
+      const c = r.competitors.find((x) => x.competitor_id === id);
+      if (!c || c.matched_price == null) {
+        return `<td class="px-2 py-2 text-xs text-slate-400 border-l border-slate-100 align-top">
+          <span class="block">no match</span>
+          <span class="block text-[10px] text-slate-300">${c?.candidates_seen ?? 0} seen</span>
+        </td>`;
+      }
+      return `<td class="px-2 py-2 text-xs border-l border-slate-100 align-top">
+        <div class="font-medium text-slate-800">${fmtMoney(c.matched_price)}</div>
+        <div class="text-[10px] text-slate-500 truncate max-w-[160px]" title="${escapeHtml(c.matched_name ?? "")}">${escapeHtml(c.matched_name ?? "")}</div>
+        <div class="mt-1">${verdictBadge(c.verdict)} <span class="text-[10px] text-slate-400 font-mono">${(c.score ?? 0).toFixed(2)}</span></div>
+        ${c.matched_url ? `<a href="${c.matched_url}" target="_blank" class="text-[10px] text-blue-600 hover:underline">open ↗</a>` : ""}
+        <div class="text-[10px] mt-1">${fmtDiff(c.price_diff_vs_dk)}</div>
+      </td>`;
+    }).join("");
+
+    return `
+      <tr class="${i % 2 === 0 ? "bg-white" : "bg-slate-50"} border-t border-slate-200">
+        <td class="px-2 py-2 text-xs text-slate-400 align-top">${i + 1}</td>
+        <td class="px-2 py-2 align-top">
+          <div class="font-medium text-sm">${escapeHtml(dk.name)}</div>
+          <div class="text-[10px] text-slate-500">${dk.brand ?? ""} ${dk.sku ? "· " + dk.sku : ""}</div>
+        </td>
+        <td class="px-2 py-2 text-sm font-medium align-top">${fmtMoney(dk.price)}</td>
+        ${compCells}
+      </tr>
+    `;
+  }).join("");
+
+  $("results").innerHTML = `
+    <div class="overflow-x-auto">
+      <table class="text-sm w-full">
+        <thead class="bg-slate-100 sticky top-0">
+          <tr>
+            <th class="px-2 py-2 text-left text-xs uppercase text-slate-600">#</th>
+            <th class="px-2 py-2 text-left text-xs uppercase text-slate-600">Dentalkart product</th>
+            <th class="px-2 py-2 text-left text-xs uppercase text-slate-600">DK price</th>
+            ${headerCells}
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]);
+}
+
+wireDropZone();
+</script>
+</body>
+</html>

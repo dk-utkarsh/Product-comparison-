@@ -28,20 +28,23 @@ def _vec_literal(v: np.ndarray) -> str:
     return "[" + ",".join(f"{float(x):.6f}" for x in v.tolist()) + "]"
 
 
-async def ingest_csv(path: Path, db: Database, batch: int = 64) -> int:
+async def ingest_rows(rows: list[dict[str, str]], db: Database, batch: int = 64) -> int:
+    """Embed and insert rows into dentalkart_catalog.
+
+    Each row must have a 'name' key. 'sku' and 'brand' are optional.
+    Returns the number of rows inserted.
+    """
     emb = get_embedder()
-    rows: list[dict[str, str]] = []
-    with path.open() as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            keyed = {k.lower().strip(): (v or "").strip() for k, v in row.items()}
-            if not keyed.get("name"):
-                continue
-            rows.append(keyed)
+    clean: list[dict[str, str]] = []
+    for r in rows:
+        keyed = {k.lower().strip(): (v or "").strip() for k, v in r.items()}
+        if not keyed.get("name"):
+            continue
+        clean.append(keyed)
 
     inserted = 0
-    for i in range(0, len(rows), batch):
-        chunk = rows[i : i + batch]
+    for i in range(0, len(clean), batch):
+        chunk = clean[i : i + batch]
         names = [r["name"] for r in chunk]
         vecs = emb.encode_many(names)
         for r, v in zip(chunk, vecs, strict=True):
@@ -57,6 +60,13 @@ async def ingest_csv(path: Path, db: Database, batch: int = 64) -> int:
             )
             inserted += 1
     return inserted
+
+
+async def ingest_csv(path: Path, db: Database, batch: int = 64) -> int:
+    with path.open() as f:
+        reader = csv.DictReader(f)
+        rows = [dict(row) for row in reader]
+    return await ingest_rows(rows, db, batch=batch)
 
 
 async def _main() -> None:

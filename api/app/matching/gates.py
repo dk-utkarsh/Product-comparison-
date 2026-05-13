@@ -61,6 +61,16 @@ class GateResult:
     reason: str = ""
 
 
+def _stem(w: str) -> str:
+    """Collapse trivial plurals so refill/refills, tip/tips, brackets/bracket
+    map to the same stem. Only handles the cases we care about for gate
+    equivalence checks — not a general lemmatizer.
+    """
+    if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+        return w[:-1]
+    return w
+
+
 def _words(text: str) -> set[str]:
     return set(_WORD_RE.findall(text.lower()))
 
@@ -83,8 +93,8 @@ def _incompatible_types(search_words: set[str], found_words: set[str]) -> bool:
     s_words = {w for w in search_words if w in _WORD_TO_GROUP}
     f_words = {w for w in found_words if w in _WORD_TO_GROUP}
     for g in s_groups & f_groups:
-        s_in_g = {w for w in s_words if _WORD_TO_GROUP[w] == g}
-        f_in_g = {w for w in f_words if _WORD_TO_GROUP[w] == g}
+        s_in_g = {_stem(w) for w in s_words if _WORD_TO_GROUP[w] == g}
+        f_in_g = {_stem(w) for w in f_words if _WORD_TO_GROUP[w] == g}
         if s_in_g and f_in_g and not (s_in_g & f_in_g):
             return True
     return False
