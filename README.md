@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# product-compare
 
-## Getting Started
+Python FastAPI service that compares Dentalkart product prices against
+competitor sites (Pinkblue, Oralkart, Dentmark) using sentence-transformer
+embeddings + heuristic gates + rapidfuzz for matching.
 
-First, run the development server:
+## Architecture
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+Browser → http://localhost:8000 (FastAPI / Python)
+              │  matching engine: normalize → gates → embed → score → verdict
+              ▼
+          http://127.0.0.1:3100 (Node sidecar)
+              │  hosts the TS scraper modules in lib/scrapers/*.ts
+              ▼
+          pinkblue.in / oralkart.com / dentmark.com / dentalkart.com
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+* **`api/`** — Python service. FastAPI + asyncpg + sentence-transformers
+  + rapidfuzz. Owns matching, UI, orchestration, DB schema.
+* **`lib/scrapers/`** — TypeScript HTTP/HTML scrapers. One module per
+  competitor. Exposed to Python via the Node sidecar.
+* **`api/bridges/scrape-server.ts`** — Node sidecar that loads every
+  scraper once and serves them over `localhost:3100`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Running locally
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+You need two processes side by side.
 
-## Learn More
+### 1. Node scraper sidecar (terminal 1)
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm install        # one-off
+npm run scrape-server
+# → http://127.0.0.1:3100/health  →  { "status": "ok", "scrapers": [...] }
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 2. FastAPI service (terminal 2)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+cd api
+uv sync            # one-off
+uv run uvicorn app.main:app --port 8000 --reload
+# → http://localhost:8000/        — drag-and-drop tester UI
+# → http://localhost:8000/docs    — OpenAPI explorer
+# → http://localhost:8000/health
+```
 
-## Deploy on Vercel
+Drop an Excel with a `Product Name` column on the homepage. For each row
+we search dentalkart.com plus the configured competitors, match every
+returned candidate with the Python pipeline, and show the best price.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Tests
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+cd api
+uv run pytest -v
+```
+
+90+ tests covering normalize, attributes, gates, scoring, triage, token
+similarity, query builder, schemas, /match route, and a 20-case TS-parity
+fixture.
+
+## Docs
+
+* `docs/superpowers/specs/2026-05-13-python-matching-backend-design.md`
+* `docs/superpowers/plans/2026-05-13-python-matching-foundation.md`
