@@ -1,0 +1,122 @@
+[
+  {
+    "search": "3M Filtek Z350 XT Shade A2",
+    "candidate": "3M Filtek Z350 XT A2",
+    "verdict": "grey",
+    "similarity": 0.8
+  },
+  {
+    "search": "3M Filtek Z350 XT Shade A2",
+    "candidate": "3M Filtek Z350 XT Shade A3",
+    "verdict": "grey",
+    "similarity": 0.95
+  },
+  {
+    "search": "3M Filtek Z350 XT",
+    "candidate": "GC Fuji IX GP Capsules",
+    "verdict": "reject",
+    "similarity": 0
+  },
+  {
+    "search": "Dentsply ProTaper F2",
+    "candidate": "Dentsply ProTaper F1",
+    "verdict": "accept",
+    "similarity": 0.9411764705882353
+  },
+  {
+    "search": "Dentsply ProTaper F2 25",
+    "candidate": "Dentsply ProTaper F2",
+    "verdict": "accept",
+    "similarity": 0.9444444444444444
+  },
+  {
+    "search": "GC Fuji IX GP Capsules",
+    "candidate": "GC Fuji IX GP Powder",
+    "verdict": "grey",
+    "similarity": 0.5625
+  },
+  {
+    "search": "GC Fuji IX GP Capsules",
+    "candidate": "GC Fuji IX GP Capsules - Pack Of 50",
+    "verdict": "accept",
+    "similarity": 1
+  },
+  {
+    "search": "Endo File #25",
+    "candidate": "Endo File #15",
+    "verdict": "grey",
+    "similarity": 0.8
+  },
+  {
+    "search": "Cotton Rolls Pack Of 500",
+    "candidate": "Cotton Rolls",
+    "verdict": "accept",
+    "similarity": 1
+  },
+  {
+    "search": "Chlorhexidine 2% Mouthwash",
+    "candidate": "Chlorhexidine 5% Mouthwash",
+    "verdict": "grey",
+    "similarity": 0.9130434782608695
+  },
+  {
+    "search": "MBT Bracket .022 Slot",
+    "candidate": "Roth Bracket .022 Slot",
+    "verdict": "grey",
+    "similarity": 0.8
+  },
+  {
+    "search": "MBT Bracket .022 Slot",
+    "candidate": "MBT Bracket .018 Slot",
+    "verdict": "grey",
+    "similarity": 0.8235294117647058
+  },
+  {
+    "search": "3M Espe Adper Single Bond 2",
+    "candidate": "3M Espe Adper Single Bond Universal",
+    "verdict": "grey",
+    "similarity": 0.8
+  },
+  {
+    "search": "Septodont Septanest 1:100000",
+    "candidate": "Septodont Septanest 1:200000",
+    "verdict": "accept",
+    "similarity": 0.92
+  },
+  {
+    "search": "Woodpecker UDS-J Scaler",
+    "candidate": "Woodpecker UDS-N3 Scaler",
+    "verdict": "accept",
+    "similarity": 0.8780487804878049
+  },
+  {
+    "search": "Composite Resin - Buy Online",
+    "candidate": "Composite Resin",
+    "verdict": "accept",
+    "similarity": 1
+  },
+  {
+    "search": "3M Filtek Refill",
+    "candidate": "3M Filtek Kit",
+    "verdict": "grey",
+    "similarity": 0.6086956521739131
+  },
+  {
+    "search": "Monitor LCD 24 inch",
+    "candidate": "Dental Crown",
+    "verdict": "reject",
+    "similarity": 0.08
+  },
+  {
+    "search": "GC Fuji IX GP Extra",
+    "candidate": "GC FujiIX GP Capsules",
+    "verdict": "grey",
+    "similarity": 0.5806451612903226
+  },
+  {
+    "search": "Putty Light Body",
+    "candidate": "Putty Heavy Body",
+    "verdict": "grey",
+    "similarity": 0.5384615384615384
+  }
+]
