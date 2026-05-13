@@ -19,10 +19,12 @@ class Settings(BaseSettings):
     possible_threshold: float = 0.55
     variant_threshold: float = 0.45
 
-    score_w_cosine: float = Field(default=0.6)
-    score_w_brand: float = Field(default=0.2)
-    score_w_pack: float = Field(default=0.1)
-    score_w_attr: float = Field(default=0.1)
+    score_w_cosine: float = Field(default=0.45)
+    score_w_brand: float = Field(default=0.15)
+    score_w_pack: float = Field(default=0.05)
+    score_w_attr: float = Field(default=0.10)
+    score_w_token: float = Field(default=0.15)
+    score_w_fuzz: float = Field(default=0.10)
 
 
 @lru_cache(maxsize=1)

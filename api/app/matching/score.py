@@ -28,6 +28,8 @@ class MatchScore:
     brand_score: float
     pack_score: float
     attr_score: float
+    token_score: float
+    fuzz_score: float
     verdict: Verdict
 
 
@@ -64,6 +66,8 @@ def score_match(
     cosine_sim: float,
     search_attrs: Attributes,
     candidate_attrs: Attributes,
+    token_overlap: float = 0.0,
+    fuzz_ratio: float = 0.0,
 ) -> MatchScore:
     settings = get_settings()
     brand = _brand_score(search_attrs, candidate_attrs)
@@ -75,6 +79,8 @@ def score_match(
         + settings.score_w_brand * brand
         + settings.score_w_pack * pack
         + settings.score_w_attr * attr
+        + settings.score_w_token * token_overlap
+        + settings.score_w_fuzz * fuzz_ratio
     )
 
     if score >= settings.accept_threshold:
@@ -92,5 +98,7 @@ def score_match(
         brand_score=brand,
         pack_score=pack,
         attr_score=attr,
+        token_score=token_overlap,
+        fuzz_score=fuzz_ratio,
         verdict=verdict,
     )

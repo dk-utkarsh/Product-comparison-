@@ -22,7 +22,8 @@ from pydantic import BaseModel, Field
 
 from app.matching.query_builder import ProductContext, extract_smart_queries
 from app.matching.score import Verdict
-from app.matching.triage import triage
+from app.matching.tokens import distinguishing_tokens
+from app.matching.triage import triage_batch
 from app.scrapers.bridge import COMPETITORS, CompetitorProduct, scrape_competitor
 
 router = APIRouter(prefix="/compare", tags=["compare"])
@@ -61,53 +62,73 @@ class CompareBatchResponse(BaseModel):
     results: list[CompareResult]
 
 
-def _best_match(dk_name: str, candidates: list, dk_price: float | None) -> CompetitorMatch | None:
-    """Run Python triage on every candidate and pick the best."""
+def _prefilter_candidates(
+    search: str, candidates: list[CompetitorProduct]
+) -> list[CompetitorProduct]:
+    """Sparse pre-filter: only keep candidates that share at least one
+    distinguishing token with the search (stopwords excluded).
+
+    Without this, broader fallback queries dump a lot of obviously-unrelated
+    products into the pool and waste embedder cycles. With it, the pool
+    shrinks to plausible candidates only.
+    """
+    sig = distinguishing_tokens(search)
+    if not sig:
+        return candidates
+    kept: list[CompetitorProduct] = []
+    for c in candidates:
+        if not c.name:
+            continue
+        if distinguishing_tokens(c.name) & sig:
+            kept.append(c)
+    return kept
+
+
+def _best_match(
+    dk_name: str, candidates: list[CompetitorProduct], dk_price: float | None
+) -> CompetitorMatch | None:
+    """Pre-filter, batch-triage, pick the highest-scoring confirmed/possible."""
     if not candidates:
         return None
 
+    pool = [c for c in candidates if c.name and c.price > 0]
+    pool = _prefilter_candidates(dk_name, pool)
+    if not pool:
+        return None
+
+    results = triage_batch(dk_name, [c.name for c in pool])
+
     best_score = -1.0
-    best: dict[str, Any] | None = None
-    for cand in candidates:
-        if not cand.name or cand.price <= 0:
-            continue
-        r = triage(dk_name, cand.name)
+    best_cand: CompetitorProduct | None = None
+    best_result = None
+    for cand, r in zip(pool, results, strict=True):
         if r.verdict.value not in _ACCEPT_VERDICTS:
             continue
         if r.score > best_score:
             best_score = r.score
-            best = {
-                "name": cand.name,
-                "url": cand.url,
-                "price": cand.price,
-                "image": cand.image,
-                "in_stock": cand.in_stock,
-                "verdict": r.verdict.value,
-                "score": r.score,
-                "cosine": r.cosine,
-                "reasons": r.reasons,
-            }
+            best_cand = cand
+            best_result = r
 
-    if best is None:
+    if best_cand is None or best_result is None:
         return None
 
     diff: float | None = None
     if dk_price and dk_price > 0:
-        diff = round(dk_price - best["price"], 2)
+        diff = round(dk_price - best_cand.price, 2)
 
     return CompetitorMatch(
-        competitor_id="",  # caller fills
-        competitor_name="",  # caller fills
+        competitor_id="",
+        competitor_name="",
         candidates_seen=len(candidates),
-        matched_name=best["name"],
-        matched_url=best["url"],
-        matched_price=best["price"],
-        matched_image=best["image"],
-        in_stock=best["in_stock"],
-        verdict=best["verdict"],
-        score=best["score"],
-        cosine=best["cosine"],
-        reasons=best["reasons"],
+        matched_name=best_cand.name,
+        matched_url=best_cand.url,
+        matched_price=best_cand.price,
+        matched_image=best_cand.image,
+        in_stock=best_cand.in_stock,
+        verdict=best_result.verdict.value,
+        score=best_result.score,
+        cosine=best_result.cosine,
+        reasons=best_result.reasons,
         price_diff_vs_dk=diff,
     )
 

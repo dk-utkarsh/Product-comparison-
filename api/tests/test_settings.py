@@ -11,10 +11,20 @@ def test_settings_reads_env(monkeypatch):
 
 def test_settings_score_weights_default():
     s = Settings(database_url="postgres://x")
-    assert s.score_w_cosine == 0.6
-    assert s.score_w_brand == 0.2
-    assert s.score_w_pack == 0.1
-    assert s.score_w_attr == 0.1
+    assert s.score_w_cosine == 0.45
+    assert s.score_w_brand == 0.15
+    assert s.score_w_pack == 0.05
+    assert s.score_w_attr == 0.10
+    assert s.score_w_token == 0.15
+    assert s.score_w_fuzz == 0.10
+    assert (
+        s.score_w_cosine
+        + s.score_w_brand
+        + s.score_w_pack
+        + s.score_w_attr
+        + s.score_w_token
+        + s.score_w_fuzz
+    ) == 1.0
 
 
 def test_settings_thresholds_default():
