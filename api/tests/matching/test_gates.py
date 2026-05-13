@@ -42,3 +42,12 @@ def test_category_exclusion_monitor_vs_crown():
 def test_refill_vs_kit_rejects():
     r = gate_check("3M Filtek Refill", "3M Filtek Kit")
     assert r.passed is False
+
+
+def test_positioning_gauge_vs_bracket_kit_rejects():
+    r = gate_check(
+        "OSL Bracket Positioning Height Gauge - 0.022",
+        "OSL M3 Metal Orthodontic Bracket Kits",
+    )
+    assert r.passed is False
+    assert "category" in r.reason.lower() or "incompatible" in r.reason.lower()

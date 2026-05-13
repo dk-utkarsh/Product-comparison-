@@ -50,6 +50,12 @@ _CATEGORY_EXCLUSIONS: list[tuple[frozenset[str], frozenset[str]]] = [
     (frozenset({"roth"}), frozenset({"mbt", "conventional", "duploslot"})),
     (frozenset({"duploslot"}), frozenset({"standard", "mbt", "roth"})),
     (frozenset({"self-ligating"}), frozenset({"conventional"})),
+    # Measurement tools vs the products they measure.
+    # "Bracket positioning height gauge" is NOT the same as "bracket kit".
+    (
+        frozenset({"gauge", "gauges", "caliper", "ruler", "positioning"}),
+        frozenset({"kit", "kits"}),
+    ),
 ]
 
 _WORD_RE = re.compile(r"\b[a-z0-9]+\b")
