@@ -20,9 +20,10 @@ import openpyxl
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
+from app.matching.query_builder import ProductContext, extract_smart_queries
 from app.matching.score import Verdict
 from app.matching.triage import triage
-from app.scrapers.bridge import COMPETITORS, scrape_competitor
+from app.scrapers.bridge import COMPETITORS, CompetitorProduct, scrape_competitor
 
 router = APIRouter(prefix="/compare", tags=["compare"])
 
@@ -114,42 +115,94 @@ def _best_match(dk_name: str, candidates: list, dk_price: float | None) -> Compe
     )
 
 
-async def _compare_one(row: DkRow) -> CompareResult:
-    """Fan out across Dentalkart + competitors for one row."""
-    dk_task = scrape_competitor("dentalkart", row.name)
-    comp_tasks = [scrape_competitor(cid, row.name) for cid, _ in COMPETITORS]
-    all_results = await asyncio.gather(dk_task, *comp_tasks, return_exceptions=True)
-    dk_raw, *raw_per_comp = all_results
+async def _scrape_all_queries(
+    competitor_id: str, queries: list[str]
+) -> list[CompetitorProduct]:
+    """Fire every query for one competitor in parallel, pool unique candidates."""
+    raws = await asyncio.gather(
+        *(scrape_competitor(competitor_id, q) for q in queries),
+        return_exceptions=True,
+    )
+    seen_urls: set[str] = set()
+    pooled: list[CompetitorProduct] = []
+    for r in raws:
+        if not isinstance(r, list):
+            continue
+        for cand in r:
+            key = cand.url or cand.name
+            if key and key not in seen_urls:
+                seen_urls.add(key)
+                pooled.append(cand)
+    return pooled
 
-    # Dentalkart self-lookup — validates the row + provides image/url
-    dk_candidates = dk_raw if isinstance(dk_raw, list) else []
-    dk_match = _best_match(row.name, dk_candidates, row.price)
+
+def _empty_cell(cid: str, cname: str, seen: int) -> CompetitorMatch:
+    return CompetitorMatch(
+        competitor_id=cid,
+        competitor_name=cname,
+        candidates_seen=seen,
+        matched_name=None,
+        matched_url=None,
+        matched_price=None,
+        matched_image=None,
+        in_stock=None,
+        verdict=None,
+        score=None,
+        cosine=None,
+        reasons=[],
+        price_diff_vs_dk=None,
+    )
+
+
+async def _compare_one(row: DkRow) -> CompareResult:
+    """Two-phase comparison:
+    1. Search dentalkart.com → canonical match → description + sku + packaging.
+    2. Build progressive search queries from that context.
+    3. For every competitor, try every query in parallel, pool unique
+       candidates, run triage, pick the best confirmed/possible match.
+    """
+    # Phase 1 — Dentalkart self lookup (single query: the raw row name).
+    dk_raw = await scrape_competitor("dentalkart", row.name)
+    dk_match = _best_match(row.name, dk_raw, row.price)
     if dk_match is not None:
         dk_match.competitor_id = "dentalkart"
         dk_match.competitor_name = "Dentalkart"
 
+    # Phase 2 — build the query pool using DK's richer context if we got it.
+    canonical_name = (
+        dk_match.matched_name
+        if dk_match and dk_match.matched_name
+        else row.name
+    )
+    dk_canonical = next(
+        (c for c in dk_raw if dk_match and c.url == dk_match.matched_url),
+        None,
+    )
+    ctx = ProductContext(
+        brand=row.brand,
+        description=dk_canonical.description if dk_canonical else None,
+        packaging=dk_canonical.packaging if dk_canonical else None,
+        sku=row.sku or (dk_canonical.sku if dk_canonical else None),
+    )
+    queries = extract_smart_queries(canonical_name, ctx)
+    if not queries:
+        queries = [row.name]
+
+    # Phase 3 — competitor fanout, multi-query per competitor.
+    comp_results = await asyncio.gather(
+        *(_scrape_all_queries(cid, queries) for cid, _ in COMPETITORS),
+        return_exceptions=True,
+    )
+
     out: list[CompetitorMatch] = []
-    for (cid, cname), result in zip(COMPETITORS, raw_per_comp, strict=True):
-        candidates = result if isinstance(result, list) else []
-        best = _best_match(row.name, candidates, row.price)
+    for (cid, cname), pooled in zip(COMPETITORS, comp_results, strict=True):
+        candidates = pooled if isinstance(pooled, list) else []
+        # Triage against the canonical DK name when available (cleaner signal
+        # than the raw user-supplied row), else the row name.
+        triage_ref = canonical_name
+        best = _best_match(triage_ref, candidates, row.price)
         if best is None:
-            out.append(
-                CompetitorMatch(
-                    competitor_id=cid,
-                    competitor_name=cname,
-                    candidates_seen=len(candidates),
-                    matched_name=None,
-                    matched_url=None,
-                    matched_price=None,
-                    matched_image=None,
-                    in_stock=None,
-                    verdict=None,
-                    score=None,
-                    cosine=None,
-                    reasons=[],
-                    price_diff_vs_dk=None,
-                )
-            )
+            out.append(_empty_cell(cid, cname, len(candidates)))
         else:
             best.competitor_id = cid
             best.competitor_name = cname

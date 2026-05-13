@@ -35,11 +35,21 @@ _PACK_RE = re.compile(
 _VISCOSITY_VARIANTS = ("light body", "heavy body", "putty", "wash", "monophase")
 
 
+_BRAND_PREFIX_RE = re.compile(r"^[a-z0-9]+", re.IGNORECASE)
+
+
 def extract_brand(name: str) -> str:
+    """Brand = first alphanumeric chunk before any hyphen/space.
+
+    "LM-SlimLift"   -> "lm"
+    "3M Filtek"     -> "3m"
+    "OrthoMetric X" -> "orthometric"
+    """
     parts = name.strip().split()
     if not parts:
         return ""
-    return parts[0].lower()
+    m = _BRAND_PREFIX_RE.match(parts[0])
+    return m.group(0).lower() if m else parts[0].lower()
 
 
 def _first_match(pat: re.Pattern[str], text: str) -> str | None:
