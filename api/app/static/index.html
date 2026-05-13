@@ -193,19 +193,7 @@ function renderResults(data) {
     const dk = r.dentalkart;
     const compCells = COMPETITORS.map(([id, _]) => {
       const c = r.competitors.find((x) => x.competitor_id === id);
-      if (!c || c.matched_price == null) {
-        return `<td class="px-2 py-2 text-xs text-slate-400 border-l border-slate-100 align-top">
-          <span class="block">no match</span>
-          <span class="block text-[10px] text-slate-300">${c?.candidates_seen ?? 0} seen</span>
-        </td>`;
-      }
-      return `<td class="px-2 py-2 text-xs border-l border-slate-100 align-top">
-        <div class="font-medium text-slate-800">${fmtMoney(c.matched_price)}</div>
-        <div class="text-[10px] text-slate-500 truncate max-w-[160px]" title="${escapeHtml(c.matched_name ?? "")}">${escapeHtml(c.matched_name ?? "")}</div>
-        <div class="mt-1">${verdictBadge(c.verdict)} <span class="text-[10px] text-slate-400 font-mono">${(c.score ?? 0).toFixed(2)}</span></div>
-        ${c.matched_url ? `<a href="${c.matched_url}" target="_blank" class="text-[10px] text-blue-600 hover:underline">open ↗</a>` : ""}
-        <div class="text-[10px] mt-1">${fmtDiff(c.price_diff_vs_dk)}</div>
-      </td>`;
+      return cellHtml(c);
     }).join("");
 
     return `
@@ -213,9 +201,10 @@ function renderResults(data) {
         <td class="px-2 py-2 text-xs text-slate-400 align-top">${i + 1}</td>
         <td class="px-2 py-2 align-top">
           <div class="font-medium text-sm">${escapeHtml(dk.name)}</div>
-          <div class="text-[10px] text-slate-500">${dk.brand ?? ""} ${dk.sku ? "· " + dk.sku : ""}</div>
+          <div class="text-[10px] text-slate-500">${escapeHtml(dk.brand ?? "")} ${dk.sku ? "· " + escapeHtml(dk.sku) : ""}</div>
         </td>
         <td class="px-2 py-2 text-sm font-medium align-top">${fmtMoney(dk.price)}</td>
+        ${cellHtml(r.dentalkart_match, true)}
         ${compCells}
       </tr>
     `;
@@ -227,8 +216,9 @@ function renderResults(data) {
         <thead class="bg-slate-100 sticky top-0">
           <tr>
             <th class="px-2 py-2 text-left text-xs uppercase text-slate-600">#</th>
-            <th class="px-2 py-2 text-left text-xs uppercase text-slate-600">Dentalkart product</th>
+            <th class="px-2 py-2 text-left text-xs uppercase text-slate-600">Dentalkart product (input)</th>
             <th class="px-2 py-2 text-left text-xs uppercase text-slate-600">DK price</th>
+            <th class="px-2 py-2 text-left text-xs uppercase text-slate-600 border-l border-slate-200">Dentalkart.com</th>
             ${headerCells}
           </tr>
         </thead>
@@ -236,6 +226,35 @@ function renderResults(data) {
       </table>
     </div>
   `;
+}
+
+function cellHtml(c, isDk = false) {
+  const borderLeft = "border-l border-slate-100";
+  if (!c || c.matched_price == null) {
+    return `<td class="px-2 py-2 text-xs text-slate-400 ${borderLeft} align-top">
+      <span class="block">no match</span>
+      <span class="block text-[10px] text-slate-300">${c?.candidates_seen ?? 0} seen</span>
+    </td>`;
+  }
+  const img = c.matched_image
+    ? `<img src="${c.matched_image}" alt="" loading="lazy"
+        class="w-12 h-12 object-contain rounded border border-slate-200 bg-white shrink-0" />`
+    : `<div class="w-12 h-12 rounded border border-slate-200 bg-slate-50 shrink-0 flex items-center justify-center text-[10px] text-slate-400">no img</div>`;
+  return `<td class="px-2 py-2 text-xs ${borderLeft} align-top">
+    <div class="flex gap-2">
+      ${img}
+      <div class="min-w-0 flex-1">
+        <div class="font-medium text-slate-800">${fmtMoney(c.matched_price)}</div>
+        <div class="text-[10px] text-slate-500 line-clamp-2" title="${escapeHtml(c.matched_name ?? "")}">${escapeHtml(c.matched_name ?? "")}</div>
+        <div class="mt-1 flex items-center gap-1">
+          ${verdictBadge(c.verdict)}
+          <span class="text-[10px] text-slate-400 font-mono">${(c.score ?? 0).toFixed(2)}</span>
+        </div>
+        ${c.matched_url ? `<a href="${c.matched_url}" target="_blank" rel="noopener" class="text-[10px] text-blue-600 hover:underline">open ↗</a>` : ""}
+        ${!isDk ? `<div class="text-[10px] mt-1">${fmtDiff(c.price_diff_vs_dk)}</div>` : ""}
+      </div>
+    </div>
+  </td>`;
 }
 
 function escapeHtml(s) {

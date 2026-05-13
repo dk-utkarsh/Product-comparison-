@@ -54,6 +54,7 @@ class CompetitorMatch(BaseModel):
 
 class CompareResult(BaseModel):
     dentalkart: DkRow
+    dentalkart_match: CompetitorMatch | None = None
     competitors: list[CompetitorMatch]
 
 
@@ -114,9 +115,18 @@ def _best_match(dk_name: str, candidates: list, dk_price: float | None) -> Compe
 
 
 async def _compare_one(row: DkRow) -> CompareResult:
-    """Fan out across competitors for one Dentalkart row."""
-    tasks = [scrape_competitor(cid, row.name) for cid, _ in COMPETITORS]
-    raw_per_comp = await asyncio.gather(*tasks, return_exceptions=True)
+    """Fan out across Dentalkart + competitors for one row."""
+    dk_task = scrape_competitor("dentalkart", row.name)
+    comp_tasks = [scrape_competitor(cid, row.name) for cid, _ in COMPETITORS]
+    all_results = await asyncio.gather(dk_task, *comp_tasks, return_exceptions=True)
+    dk_raw, *raw_per_comp = all_results
+
+    # Dentalkart self-lookup — validates the row + provides image/url
+    dk_candidates = dk_raw if isinstance(dk_raw, list) else []
+    dk_match = _best_match(row.name, dk_candidates, row.price)
+    if dk_match is not None:
+        dk_match.competitor_id = "dentalkart"
+        dk_match.competitor_name = "Dentalkart"
 
     out: list[CompetitorMatch] = []
     for (cid, cname), result in zip(COMPETITORS, raw_per_comp, strict=True):
@@ -145,7 +155,7 @@ async def _compare_one(row: DkRow) -> CompareResult:
             best.competitor_name = cname
             out.append(best)
 
-    return CompareResult(dentalkart=row, competitors=out)
+    return CompareResult(dentalkart=row, dentalkart_match=dk_match, competitors=out)
 
 
 @router.post("/single", response_model=CompareResult)
