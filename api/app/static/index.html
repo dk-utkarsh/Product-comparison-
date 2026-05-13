@@ -38,7 +38,7 @@
       <p class="text-sm text-slate-500 mb-4">
         Excel (<code>.xlsx</code>) with at least a <strong>Product Name</strong> column.
         Optional: <strong>SKU</strong>, <strong>Brand</strong>, <strong>Price</strong>.
-        For each row we'll search 9 competitors in parallel, match each candidate with the Python pipeline, and show the best price.
+        For each row we'll search Pinkblue, Oralkart and Dentmark in parallel, match each candidate with the Python pipeline, and show the best price.
       </p>
 
       <div class="flex gap-3 items-center mb-3">
@@ -73,12 +73,6 @@ const COMPETITORS = [
   ["pinkblue", "Pinkblue"],
   ["oralkart", "Oralkart"],
   ["dentmark", "Dentmark"],
-  ["metroorthodontics", "Metro Ortho"],
-  ["shop4smile", "Shop4Smile"],
-  ["surgicalmart", "SurgicalMart"],
-  ["smilestream", "SmileStream"],
-  ["dentaid", "Dentaid"],
-  ["medikabazar", "Medikabazar"],
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -142,7 +136,7 @@ async function runBatch(file) {
   $("status").innerHTML = `
     <span class="text-slate-600">
       Running <strong>${escapeHtml(file.name)}</strong> at concurrency=${conc}…
-      Each row hits 9 competitor sites; expect ~10-30s per row.
+      Each row hits 3 competitor sites; expect ~5-15s per row.
     </span>
   `;
   $("resultsWrap").classList.add("hidden");

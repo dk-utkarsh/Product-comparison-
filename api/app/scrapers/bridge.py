@@ -107,10 +107,4 @@ COMPETITORS: list[tuple[str, str]] = [
     ("pinkblue", "Pinkblue"),
     ("oralkart", "Oralkart"),
     ("dentmark", "Dentmark"),
-    ("metroorthodontics", "Metro Ortho"),
-    ("shop4smile", "Shop4Smile"),
-    ("surgicalmart", "SurgicalMart"),
-    ("smilestream", "SmileStream"),
-    ("dentaid", "Dentaid"),
-    ("medikabazar", "Medikabazar"),
 ]
