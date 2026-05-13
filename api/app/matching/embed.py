@@ -15,15 +15,18 @@ from app.settings import get_settings
 
 class Embedder:
     _lock = threading.Lock()
-    _model: SentenceTransformer | None = None
+    _shared_model: SentenceTransformer | None = None
 
     def __init__(self) -> None:
-        with Embedder._lock:
-            if Embedder._model is None:
+        self._model: SentenceTransformer = self._get_or_load_model()
+
+    @classmethod
+    def _get_or_load_model(cls) -> SentenceTransformer:
+        with cls._lock:
+            if cls._shared_model is None:
                 s = get_settings()
-                Embedder._model = SentenceTransformer(s.embed_model, device=s.embed_device)
-        assert Embedder._model is not None
-        self._model: SentenceTransformer = Embedder._model
+                cls._shared_model = SentenceTransformer(s.embed_model, device=s.embed_device)
+            return cls._shared_model
 
     def encode_one(self, text: str) -> np.ndarray:
         v = self._model.encode([text], normalize_embeddings=True)[0]

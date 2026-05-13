@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import asyncpg
 
@@ -17,15 +17,15 @@ class Database:
 
     async def fetch(self, query: str, *args: Any) -> list[asyncpg.Record]:
         async with self._pool.acquire() as conn:
-            return await conn.fetch(query, *args)
+            return cast(list[asyncpg.Record], await conn.fetch(query, *args))
 
     async def fetchrow(self, query: str, *args: Any) -> asyncpg.Record | None:
         async with self._pool.acquire() as conn:
-            return await conn.fetchrow(query, *args)
+            return cast("asyncpg.Record | None", await conn.fetchrow(query, *args))
 
     async def execute(self, query: str, *args: Any) -> str:
         async with self._pool.acquire() as conn:
-            return await conn.execute(query, *args)
+            return cast(str, await conn.execute(query, *args))
 
     async def close(self) -> None:
         await self._pool.close()

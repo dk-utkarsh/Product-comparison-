@@ -6,7 +6,7 @@ score = w_cosine * cosine + w_brand * brand + w_pack * pack + w_attr * attr
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from app.matching.attributes import Attributes
 from app.settings import get_settings
@@ -14,7 +14,7 @@ from app.settings import get_settings
 _PACK_TOLERANCE = 0.02  # 2%
 
 
-class Verdict(str, Enum):
+class Verdict(StrEnum):
     CONFIRMED = "confirmed"
     POSSIBLE = "possible"
     VARIANT = "variant"
