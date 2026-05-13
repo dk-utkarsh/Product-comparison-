@@ -3,70 +3,512 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Dentalkart price comparison · tester</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>Dentalkart · Competitive Pricing Watch</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Geist:wght@300..700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .verdict-confirmed { background: #dcfce7; color: #166534; }
-    .verdict-possible  { background: #fef9c3; color: #854d0e; }
-    .verdict-variant   { background: #fed7aa; color: #9a3412; }
-    .verdict-rejected  { background: #fee2e2; color: #991b1b; }
-    .cheaper { color: #166534; font-weight: 600; }
-    .pricier { color: #991b1b; }
+    :root {
+      --canvas:    #fafaf7;
+      --paper:     #ffffff;
+      --ink:       #131211;
+      --ink-mute:  #6c685f;
+      --rule:      #e8e4da;
+      --rule-2:    #d6d1c4;
+      --brand:     #2483b9;
+      --brand-deep:#0f4e70;
+      --brand-tint:#e6f2f9;
+      --emerald:   #1e7f4f;
+      --emerald-tint:#dff3e8;
+      --rust:      #b94c25;
+      --rust-tint: #fbe6dc;
+      --gold:      #8a6a17;
+      --gold-tint: #f6ecd4;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--canvas); color: var(--ink); }
+
+    body {
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-weight: 400;
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      background-image:
+        radial-gradient(at 0% 0%, rgba(36, 131, 185, 0.05) 0px, transparent 40%),
+        radial-gradient(at 100% 0%, rgba(15, 78, 112, 0.04) 0px, transparent 30%);
+      min-height: 100vh;
+    }
+
+    .serif {
+      font-family: 'Fraunces', 'Georgia', serif;
+      font-variation-settings: 'opsz' 144, 'SOFT' 50, 'WONK' 0;
+      letter-spacing: -0.02em;
+    }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+    .container { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+
+    /* ── Header ─────────────────────────────── */
+    .topbar {
+      border-bottom: 1px solid var(--rule);
+      background: var(--paper);
+    }
+    .topbar-inner {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 22px 0;
+    }
+    .brandmark {
+      display: flex; align-items: center; gap: 14px;
+    }
+    .brandmark img { height: 32px; width: auto; display: block; }
+    .brandmark .divider {
+      width: 1px; height: 28px; background: var(--rule-2);
+    }
+    .brandmark .product-label {
+      font-size: 11px; letter-spacing: 0.16em;
+      text-transform: uppercase; color: var(--ink-mute);
+    }
+    .brandmark .product-label strong { color: var(--ink); font-weight: 500; }
+
+    .topbar a.docs-link {
+      color: var(--ink-mute); text-decoration: none; font-size: 13px;
+      letter-spacing: 0.02em; border-bottom: 1px solid var(--rule-2);
+      padding-bottom: 2px; transition: color .15s, border-color .15s;
+    }
+    .topbar a.docs-link:hover { color: var(--brand); border-color: var(--brand); }
+
+    /* ── Hero ──────────────────────────────── */
+    .hero { padding: 56px 0 36px; }
+    .hero-eyebrow {
+      font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--brand); font-weight: 500; margin: 0 0 14px;
+    }
+    .hero h1 {
+      margin: 0 0 16px; font-size: clamp(38px, 5.4vw, 64px);
+      line-height: 1.02; font-weight: 400; max-width: 22ch;
+    }
+    .hero h1 em {
+      font-style: italic; font-weight: 300; color: var(--brand-deep);
+    }
+    .hero p.lede {
+      font-size: 17px; color: var(--ink-mute); max-width: 56ch;
+      margin: 0; line-height: 1.55;
+    }
+
+    /* ── Cards / sections ──────────────────── */
+    .card {
+      background: var(--paper); border: 1px solid var(--rule);
+      border-radius: 6px; padding: 28px 32px;
+    }
+    .section-label {
+      font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--ink-mute); margin: 0 0 18px; font-weight: 500;
+    }
+
+    /* ── Dropzone ──────────────────────────── */
+    .dropzone {
+      border: 1.5px dashed var(--rule-2);
+      border-radius: 8px; padding: 56px 24px; text-align: center;
+      cursor: pointer; transition: all .2s;
+      background:
+        repeating-linear-gradient(
+          135deg,
+          transparent 0,
+          transparent 18px,
+          rgba(36, 131, 185, 0.018) 18px,
+          rgba(36, 131, 185, 0.018) 19px
+        );
+    }
+    .dropzone:hover, .dropzone.hot {
+      border-color: var(--brand);
+      background: var(--brand-tint);
+    }
+    .dropzone .dz-title {
+      font-family: 'Fraunces', serif; font-style: italic; font-weight: 400;
+      font-size: 24px; margin: 0 0 8px; color: var(--ink);
+    }
+    .dropzone .dz-sub {
+      font-size: 13px; color: var(--ink-mute); margin: 0;
+    }
+    .dropzone .dz-sub strong { color: var(--ink); font-weight: 500; }
+    .dropzone .dz-arrow {
+      display: inline-block; margin-bottom: 16px;
+      width: 56px; height: 56px; border: 1px solid var(--brand);
+      border-radius: 50%; line-height: 54px;
+      color: var(--brand); font-size: 22px;
+      transition: transform .2s;
+    }
+    .dropzone:hover .dz-arrow, .dropzone.hot .dz-arrow {
+      transform: translateY(-3px);
+      background: var(--brand); color: white;
+    }
+
+    .controls-row {
+      margin-top: 18px; display: flex; gap: 18px; align-items: center;
+      font-size: 13px; color: var(--ink-mute);
+    }
+    .controls-row input[type=number] {
+      width: 56px; padding: 6px 8px; border: 1px solid var(--rule-2);
+      border-radius: 4px; font-family: inherit; font-size: 13px;
+      background: var(--paper);
+    }
+    .controls-row input[type=number]:focus {
+      outline: none; border-color: var(--brand);
+    }
+
+    /* ── Loading state ─────────────────────── */
+    .loading-wrap {
+      display: none; padding: 0; overflow: hidden;
+    }
+    .loading-wrap.active { display: block; }
+    .loading-grid {
+      display: grid; grid-template-columns: 1fr 1.4fr; gap: 0;
+      min-height: 360px;
+    }
+    .loading-left {
+      padding: 40px 36px; border-right: 1px solid var(--rule);
+      display: flex; flex-direction: column; justify-content: space-between;
+    }
+    .loading-right {
+      padding: 40px 36px; background: linear-gradient(
+        135deg, var(--brand-tint) 0%, transparent 70%
+      );
+    }
+    .pulse-mark {
+      width: 56px; height: 56px; border-radius: 50%;
+      background: var(--brand); position: relative;
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-family: 'Fraunces', serif; font-style: italic;
+      font-size: 28px; line-height: 1;
+    }
+    .pulse-mark::before, .pulse-mark::after {
+      content: ''; position: absolute; inset: 0;
+      border-radius: 50%; border: 1px solid var(--brand);
+      animation: pulse-out 2.4s cubic-bezier(.4,0,.2,1) infinite;
+    }
+    .pulse-mark::after { animation-delay: 1.2s; }
+    @keyframes pulse-out {
+      0%   { transform: scale(1);    opacity: .6; }
+      100% { transform: scale(2.4); opacity: 0;   }
+    }
+
+    .loading-title {
+      font-family: 'Fraunces', serif; font-size: 32px; line-height: 1.1;
+      font-weight: 300; margin: 28px 0 12px;
+    }
+    .loading-title em { font-style: italic; color: var(--brand-deep); }
+    .loading-meta {
+      font-size: 13px; color: var(--ink-mute); margin: 0;
+    }
+    .loading-meta span.mono {
+      color: var(--ink); font-weight: 500;
+    }
+
+    .progress-bar {
+      margin-top: 28px; height: 3px; background: var(--rule);
+      border-radius: 2px; overflow: hidden; position: relative;
+    }
+    .progress-bar::after {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(
+        90deg,
+        transparent 0%,
+        var(--brand) 30%,
+        var(--brand-deep) 50%,
+        var(--brand) 70%,
+        transparent 100%
+      );
+      animation: slide 1.4s ease-in-out infinite;
+    }
+    @keyframes slide {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(100%);  }
+    }
+
+    /* About Dentalkart card carousel */
+    .fact-stage {
+      position: relative; min-height: 220px;
+    }
+    .fact {
+      position: absolute; inset: 0;
+      opacity: 0; transition: opacity .8s ease, transform .8s ease;
+      transform: translateY(6px);
+    }
+    .fact.active { opacity: 1; transform: translateY(0); }
+    .fact-tag {
+      font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--brand-deep); font-weight: 500; margin: 0 0 14px;
+    }
+    .fact-headline {
+      font-family: 'Fraunces', serif; font-size: 26px; line-height: 1.18;
+      font-weight: 400; margin: 0 0 14px; max-width: 22ch;
+    }
+    .fact-headline em { font-style: italic; }
+    .fact-body {
+      font-size: 14px; color: var(--ink); margin: 0; max-width: 42ch;
+      line-height: 1.55;
+    }
+
+    .fact-dots {
+      display: flex; gap: 7px; margin-top: 24px;
+    }
+    .fact-dots .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--rule-2); transition: width .3s, background .3s;
+    }
+    .fact-dots .dot.active { background: var(--brand); width: 24px; border-radius: 3px; }
+
+    /* ── Results ───────────────────────────── */
+    .results-card { padding: 0; }
+    .results-head {
+      padding: 22px 32px; display: flex; align-items: center;
+      justify-content: space-between; border-bottom: 1px solid var(--rule);
+    }
+    .results-head h2 {
+      font-family: 'Fraunces', serif; font-weight: 400;
+      font-size: 22px; margin: 0; letter-spacing: -0.01em;
+    }
+    .results-summary {
+      font-size: 13px; color: var(--ink-mute);
+    }
+    .results-summary .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 10px; background: var(--brand-tint);
+      color: var(--brand-deep); border-radius: 12px;
+      font-weight: 500; margin-left: 10px;
+    }
+
+    table.compare-table {
+      width: 100%; border-collapse: collapse; font-size: 13px;
+    }
+    table.compare-table th {
+      text-align: left; padding: 14px 16px;
+      font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+      color: var(--ink-mute); font-weight: 500;
+      border-bottom: 1px solid var(--rule);
+      background: #fdfcf9;
+      position: sticky; top: 0;
+    }
+    table.compare-table td {
+      padding: 16px; border-bottom: 1px solid var(--rule);
+      vertical-align: top;
+    }
+    table.compare-table tr:hover td {
+      background: rgba(36, 131, 185, 0.025);
+    }
+    table.compare-table tr:last-child td { border-bottom: 0; }
+    .col-num { width: 36px; color: var(--ink-mute); font-size: 11px; }
+    .product-name {
+      font-weight: 500; line-height: 1.35; max-width: 30ch;
+    }
+
+    .cell-flex { display: flex; gap: 12px; }
+    .cell-thumb {
+      width: 54px; height: 54px; border-radius: 4px;
+      border: 1px solid var(--rule); background: var(--paper);
+      object-fit: contain; flex-shrink: 0;
+    }
+    .cell-thumb.placeholder {
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; color: var(--ink-mute); background: #f4f1ea;
+    }
+    .cell-body { min-width: 0; flex: 1; }
+    .cell-price {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 15px; font-weight: 500; color: var(--ink);
+      letter-spacing: -0.01em;
+    }
+    .cell-name {
+      font-size: 11px; color: var(--ink-mute);
+      overflow: hidden; text-overflow: ellipsis;
+      display: -webkit-box; -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical; line-height: 1.35;
+      margin-top: 2px; max-width: 180px;
+    }
+    .cell-meta {
+      display: flex; gap: 8px; align-items: center;
+      margin-top: 6px; flex-wrap: wrap;
+    }
+    .badge {
+      display: inline-block; font-size: 9px; letter-spacing: 0.12em;
+      text-transform: uppercase; padding: 3px 7px; border-radius: 3px;
+      font-weight: 600;
+    }
+    .badge.confirmed { background: var(--emerald-tint); color: var(--emerald); }
+    .badge.possible  { background: var(--gold-tint); color: var(--gold); }
+    .badge.variant   { background: var(--rust-tint); color: var(--rust); }
+    .badge.rejected  { background: #f0eee8; color: var(--ink-mute); }
+    .score-num {
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      color: var(--ink-mute);
+    }
+    .cell-link {
+      font-size: 11px; color: var(--brand); text-decoration: none;
+      margin-top: 6px; display: inline-block;
+      border-bottom: 1px solid transparent;
+    }
+    .cell-link:hover { border-color: var(--brand); }
+    .delta {
+      font-size: 11px; margin-top: 6px;
+      font-family: 'JetBrains Mono', monospace; letter-spacing: -0.01em;
+    }
+    .delta.cheaper { color: var(--emerald); font-weight: 600; }
+    .delta.pricier { color: var(--rust); }
+    .empty-cell {
+      color: var(--ink-mute); font-size: 12px; font-style: italic;
+    }
+    .empty-cell small {
+      display: block; font-size: 10px; color: var(--rule-2);
+      font-style: normal; margin-top: 2px; letter-spacing: 0.04em;
+    }
+
+    /* ── Status / log ──────────────────────── */
+    .status-msg {
+      margin-top: 14px; font-size: 13px; color: var(--ink-mute);
+    }
+    .status-msg.ok { color: var(--emerald); font-weight: 500; }
+    .status-msg.err { color: var(--rust); font-weight: 500; }
+    .debug-log {
+      margin-top: 14px; font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; background: #fdfcf9; border: 1px solid var(--rule);
+      border-radius: 4px; padding: 10px 14px; max-height: 140px;
+      overflow: auto; color: var(--ink-mute); white-space: pre;
+    }
+    .debug-log:empty { display: none; }
+
+    /* ── Reveal animations ─────────────────── */
+    .reveal { opacity: 0; transform: translateY(8px); }
+    .reveal.in {
+      opacity: 1; transform: none;
+      transition: opacity .55s ease, transform .55s cubic-bezier(.4, .0, .2, 1);
+    }
+
+    @media (max-width: 820px) {
+      .container { padding: 0 20px; }
+      .loading-grid { grid-template-columns: 1fr; }
+      .loading-left { border-right: 0; border-bottom: 1px solid var(--rule); }
+      .hero { padding: 36px 0 24px; }
+    }
   </style>
 </head>
-<body class="bg-slate-50 text-slate-800">
+<body>
 
-  <header class="border-b border-slate-200 bg-white">
-    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-      <div>
-        <h1 class="text-lg font-semibold">Dentalkart price comparison · tester</h1>
-        <p class="text-xs text-slate-500 mt-0.5">
-          Python orchestration · sentence-transformer matching · TS scrapers (bridge)
-        </p>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div class="brandmark">
+        <img src="/static/dentalkart-logo.svg" alt="Dentalkart" />
+        <div class="divider"></div>
+        <span class="product-label"><strong>Competitive Pricing</strong> · v0.2</span>
       </div>
-      <div class="text-sm text-slate-500">
-        <a class="underline hover:text-slate-700" href="/docs" target="_blank">/docs</a>
-      </div>
+      <a href="/docs" target="_blank" class="docs-link">API explorer →</a>
     </div>
   </header>
 
-  <main class="max-w-7xl mx-auto px-6 py-8 space-y-8">
+  <section class="container hero reveal" id="hero">
+    <p class="hero-eyebrow">Internal tool</p>
+    <h1 class="serif">Watch the market <em>against your catalog,</em> in real time.</h1>
+    <p class="lede">
+      Drop an Excel of Dentalkart products. We search dentalkart.com plus Pinkblue,
+      Oralkart and Dentmark in parallel, run every candidate through a sentence-transformer
+      matching pipeline, and show you where each product is cheaper or pricier — row by row.
+    </p>
+  </section>
 
-    <section class="bg-white rounded-lg border border-slate-200 p-6">
-      <h2 class="text-base font-semibold mb-1">Drop the Dentalkart product list</h2>
-      <p class="text-sm text-slate-500 mb-4">
-        Excel (<code>.xlsx</code>) with a single <strong>Product Name</strong> column (other columns are ignored).
-        For each row we'll search dentalkart.com plus Pinkblue, Oralkart and Dentmark in parallel,
-        match every candidate with the Python pipeline, and show the best price found.
-      </p>
-
-      <div class="flex gap-3 items-center mb-3">
-        <div id="dropZone"
-             class="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-8 text-center cursor-pointer hover:bg-slate-50">
-          <p class="text-slate-600">Drop xlsx or <span class="text-blue-600 underline">click to browse</span></p>
-          <input type="file" id="fileInput" accept=".xlsx" class="hidden" />
-        </div>
-        <div class="flex items-center gap-2 text-sm">
-          <label for="concurrency" class="text-slate-600">Concurrency</label>
-          <input id="concurrency" type="number" min="1" max="8" value="2"
-                 class="w-16 border border-slate-300 rounded px-2 py-1" />
-        </div>
+  <section class="container reveal" id="upload-section" style="margin-bottom: 28px;">
+    <div class="card">
+      <p class="section-label">01 · Upload your catalog</p>
+      <div id="dropZone" class="dropzone">
+        <div class="dz-arrow">↑</div>
+        <p class="dz-title">Drop your product list</p>
+        <p class="dz-sub">
+          Excel <strong>.xlsx</strong> with a <strong>Product Name</strong> column.
+          Other columns are ignored.
+        </p>
+        <input type="file" id="fileInput" accept=".xlsx" style="display:none" />
       </div>
 
-      <div id="status" class="text-sm text-slate-500"></div>
-      <pre id="log" class="mt-3 text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded p-2 max-h-40 overflow-auto"></pre>
-    </section>
+      <div class="controls-row">
+        <span>Rows in parallel</span>
+        <input id="concurrency" type="number" min="1" max="6" value="2" />
+        <span style="opacity:.7">— higher is faster, lower is friendlier to competitor sites.</span>
+      </div>
 
-    <section id="resultsWrap" class="hidden bg-white rounded-lg border border-slate-200 p-6">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-base font-semibold">Results</h2>
-        <div class="text-xs text-slate-500" id="summary"></div>
+      <div id="status" class="status-msg"></div>
+      <pre id="log" class="debug-log"></pre>
+    </div>
+  </section>
+
+  <section class="container reveal" id="loading-section" style="display:none; margin-bottom: 28px;">
+    <div class="card loading-wrap active" style="padding:0;">
+      <div class="loading-grid">
+
+        <div class="loading-left">
+          <div>
+            <div class="pulse-mark">D</div>
+            <h2 class="loading-title">
+              Comparing <em id="lt-name">your products</em><br/>across the market.
+            </h2>
+            <p class="loading-meta">
+              Querying <span class="mono">4 sources</span> per row ·
+              Concurrency <span class="mono" id="lt-conc">2</span> ·
+              Elapsed <span class="mono" id="lt-elapsed">0s</span>
+            </p>
+          </div>
+          <div class="progress-bar"></div>
+        </div>
+
+        <div class="loading-right">
+          <p class="fact-tag">About Dentalkart</p>
+          <div class="fact-stage">
+            <article class="fact active" data-i="0">
+              <h3 class="fact-headline serif">India's online <em>marketplace for dental care.</em></h3>
+              <p class="fact-body">Dentalkart connects clinicians, dental colleges and labs with thousands of supplies, instruments, and equipment — all in one curated catalog.</p>
+            </article>
+            <article class="fact" data-i="1">
+              <h3 class="fact-headline serif">Stocking <em>500+ trusted brands.</em></h3>
+              <p class="fact-body">From 3M and GC to Septodont, Dentsply, Woodpecker and beyond — Dentalkart is built around the manufacturers practitioners already trust.</p>
+            </article>
+            <article class="fact" data-i="2">
+              <h3 class="fact-headline serif">Faster <em>price intelligence.</em></h3>
+              <p class="fact-body">Every product on the platform is monitored against competing marketplaces, so pricing stays sharp without manual checks.</p>
+            </article>
+            <article class="fact" data-i="3">
+              <h3 class="fact-headline serif">Designed for <em>the working clinic.</em></h3>
+              <p class="fact-body">Bulk ordering, GST invoicing, and reliable dispatch — built for clinics, dental colleges, and labs across India.</p>
+            </article>
+            <article class="fact" data-i="4">
+              <h3 class="fact-headline serif">Matching is doing <em>NLP work right now.</em></h3>
+              <p class="fact-body">Each candidate is normalized, gated for incompatible types, embedded by a sentence transformer, weighted with token + fuzzy overlap, and ranked.</p>
+            </article>
+          </div>
+          <div class="fact-dots">
+            <span class="dot active"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <section class="container reveal" id="results-section" style="display:none; margin-bottom: 56px;">
+    <div class="card results-card">
+      <div class="results-head">
+        <h2 class="serif">Results <em style="font-style:italic;color:var(--ink-mute);font-weight:300;">— matched in <span id="elapsed-time" class="mono" style="font-size:14px;">0s</span></em></h2>
+        <div class="results-summary" id="summary"></div>
       </div>
       <div id="results"></div>
-    </section>
-
-  </main>
+    </div>
+  </section>
 
 <script>
 const COMPETITORS = [
@@ -76,132 +518,194 @@ const COMPETITORS = [
 ];
 
 const $ = (id) => document.getElementById(id);
+const enc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]);
+const fmtMoney = (n) => n == null ? "—" : "₹" + Number(n).toLocaleString("en-IN", { maximumFractionDigits: 0 });
 
 function logLine(msg) {
+  const el = $("log"); if (!el) return;
   const t = new Date().toLocaleTimeString();
-  const el = $("log");
-  if (el) el.textContent += `[${t}] ${msg}\n`;
+  el.textContent += `[${t}] ${msg}\n`;
+  el.scrollTop = el.scrollHeight;
   console.log(msg);
 }
-
 window.addEventListener("error", (e) => logLine(`JS ERROR: ${e.message} @ ${e.filename}:${e.lineno}`));
-window.addEventListener("unhandledrejection", (e) => logLine(`PROMISE ERROR: ${e.reason}`));
 
-function verdictBadge(v) {
-  if (!v) return `<span class="text-xs text-slate-400">—</span>`;
-  return `<span class="verdict-${v} text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold">${v}</span>`;
-}
-
-function fmtMoney(n) {
-  if (n == null) return "—";
-  return "₹" + n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
-}
-
-function fmtDiff(d) {
-  if (d == null) return "";
-  if (d > 0) return `<span class="cheaper">-${fmtMoney(d)} below DK</span>`;
-  if (d < 0) return `<span class="pricier">+${fmtMoney(-d)} above DK</span>`;
-  return `<span class="text-slate-400">= DK</span>`;
-}
-
-function wireDropZone() {
-  const zone = $("dropZone"), input = $("fileInput");
-  if (!zone || !input) {
-    logLine("FATAL: dropZone or fileInput not found in DOM — was the page hard-refreshed after deploy?");
-    return;
-  }
-  logLine("ready · drop xlsx or click the zone");
-  zone.addEventListener("click", () => { logLine("click → opening file picker"); input.click(); });
-  zone.addEventListener("dragover", (e) => {
-    e.preventDefault(); zone.classList.add("bg-blue-50", "border-blue-400");
+/* ── Reveal-on-load ──────────────────────── */
+requestAnimationFrame(() => {
+  document.querySelectorAll(".reveal").forEach((el, i) => {
+    setTimeout(() => el.classList.add("in"), 80 * i);
   });
-  zone.addEventListener("dragleave", () =>
-    zone.classList.remove("bg-blue-50", "border-blue-400")
-  );
-  zone.addEventListener("drop", (e) => {
-    e.preventDefault();
-    zone.classList.remove("bg-blue-50", "border-blue-400");
-    logLine(`drop event: ${e.dataTransfer.files.length} file(s)`);
-    if (e.dataTransfer.files.length) runBatch(e.dataTransfer.files[0]);
-  });
-  input.addEventListener("change", () => {
-    logLine(`file picker change: ${input.files.length} file(s)`);
-    if (input.files.length) runBatch(input.files[0]);
-  });
+});
+
+/* ── Fact carousel ───────────────────────── */
+let factIdx = 0;
+let factTimer = null;
+function rotateFact() {
+  const facts = document.querySelectorAll(".fact");
+  const dots = document.querySelectorAll(".fact-dots .dot");
+  if (!facts.length) return;
+  facts[factIdx].classList.remove("active");
+  dots[factIdx].classList.remove("active");
+  factIdx = (factIdx + 1) % facts.length;
+  facts[factIdx].classList.add("active");
+  dots[factIdx].classList.add("active");
+}
+function startFacts() {
+  if (factTimer) return;
+  factIdx = 0;
+  document.querySelectorAll(".fact").forEach((f, i) => f.classList.toggle("active", i === 0));
+  document.querySelectorAll(".fact-dots .dot").forEach((d, i) => d.classList.toggle("active", i === 0));
+  factTimer = setInterval(rotateFact, 5000);
+}
+function stopFacts() {
+  if (factTimer) { clearInterval(factTimer); factTimer = null; }
 }
 
+/* ── Elapsed timer ───────────────────────── */
+let timerHandle = null, timerStart = 0;
+function startTimer() {
+  timerStart = performance.now();
+  const tick = () => {
+    const s = ((performance.now() - timerStart) / 1000);
+    const txt = s < 60 ? `${s.toFixed(0)}s` : `${Math.floor(s/60)}m ${Math.floor(s%60)}s`;
+    const a = $("lt-elapsed"); if (a) a.textContent = txt;
+  };
+  tick();
+  timerHandle = setInterval(tick, 500);
+}
+function stopTimer() {
+  if (timerHandle) { clearInterval(timerHandle); timerHandle = null; }
+  return ((performance.now() - timerStart) / 1000).toFixed(1);
+}
+
+/* ── Dropzone ────────────────────────────── */
+const zone = $("dropZone");
+const input = $("fileInput");
+zone.addEventListener("click", () => input.click());
+zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("hot"); });
+zone.addEventListener("dragleave", () => zone.classList.remove("hot"));
+zone.addEventListener("drop", (e) => {
+  e.preventDefault(); zone.classList.remove("hot");
+  if (e.dataTransfer.files.length) runBatch(e.dataTransfer.files[0]);
+});
+input.addEventListener("change", () => {
+  if (input.files.length) runBatch(input.files[0]);
+});
+
+/* ── Main flow ───────────────────────────── */
 async function runBatch(file) {
   const conc = parseInt($("concurrency").value, 10) || 2;
-  logLine(`runBatch: ${file.name} (${file.size} bytes) · concurrency=${conc}`);
-  $("status").innerHTML = `
-    <span class="text-slate-600">
-      Running <strong>${escapeHtml(file.name)}</strong> at concurrency=${conc}…
-      Each row hits 3 competitor sites; expect ~5-15s per row.
-    </span>
-  `;
-  $("resultsWrap").classList.add("hidden");
+  logLine(`runBatch ${file.name} (${file.size} bytes) concurrency=${conc}`);
+
+  $("status").innerHTML = "";
+  $("results-section").style.display = "none";
+  $("loading-section").style.display = "block";
+  requestAnimationFrame(() => $("loading-section").classList.add("in"));
+
+  $("lt-name").textContent = file.name.replace(/\.xlsx$/i, "");
+  $("lt-conc").textContent = conc;
+  startTimer();
+  startFacts();
 
   const fd = new FormData();
   fd.append("file", file);
 
-  const t0 = performance.now();
   let res;
   try {
-    logLine("POST /compare/batch …");
     res = await fetch(`/compare/batch?concurrency=${conc}`, { method: "POST", body: fd });
   } catch (e) {
-    logLine(`fetch threw: ${e.message}`);
-    $("status").innerHTML = `<span class="text-red-600">Network error: ${e.message}</span>`;
+    stopTimer(); stopFacts();
+    $("loading-section").style.display = "none";
+    $("status").innerHTML = `<span class="err">Network error: ${enc(e.message)}</span>`;
     return;
   }
 
-  logLine(`response: ${res.status} ${res.statusText}`);
   if (!res.ok) {
+    stopTimer(); stopFacts();
+    $("loading-section").style.display = "none";
     const err = await res.json().catch(() => ({}));
-    $("status").innerHTML = `<span class="text-red-600">Error: ${err.detail || res.statusText}</span>`;
+    $("status").innerHTML = `<span class="err">Error: ${enc(err.detail || res.statusText)}</span>`;
     return;
   }
 
   const data = await res.json();
-  const seconds = ((performance.now() - t0) / 1000).toFixed(1);
-  logLine(`done in ${seconds}s · ${data.total} rows`);
-  $("status").innerHTML = `
-    <span class="text-green-700 font-medium">Done.</span>
-    Processed ${data.total} rows in ${seconds}s.
-  `;
-  renderResults(data);
+  const elapsed = stopTimer();
+  stopFacts();
+
+  $("loading-section").style.display = "none";
+  $("status").innerHTML = `<span class="ok">Processed ${data.total} rows in ${elapsed}s.</span>`;
+  renderResults(data, elapsed);
 }
 
-function renderResults(data) {
-  const wrap = $("resultsWrap");
-  wrap.classList.remove("hidden");
+function verdictBadge(v) {
+  if (!v) return '<span class="empty-cell">—</span>';
+  return `<span class="badge ${v}">${v}</span>`;
+}
+function fmtDiff(d) {
+  if (d == null) return "";
+  if (d > 0) return `<span class="delta cheaper">↓ ${fmtMoney(d)} below DK</span>`;
+  if (d < 0) return `<span class="delta pricier">↑ ${fmtMoney(-d)} above DK</span>`;
+  return `<span class="delta" style="color:var(--ink-mute)">= DK</span>`;
+}
 
-  const matchCounts = data.results.map((r) =>
-    r.competitors.filter((c) => c.matched_price != null).length
-  );
-  const cheaperCount = data.results.reduce(
-    (n, r) => n + r.competitors.filter((c) => (c.price_diff_vs_dk ?? 0) > 0).length, 0
-  );
-  $("summary").textContent =
-    `${data.total} products · ${matchCounts.reduce((a,b)=>a+b,0)} competitor matches · ${cheaperCount} cheaper-elsewhere`;
+function cellHtml(c, isDk = false) {
+  if (!c || c.matched_price == null) {
+    return `<td><div class="empty-cell">no match<small>${c?.candidates_seen ?? 0} candidates scanned</small></div></td>`;
+  }
+  const img = c.matched_image
+    ? `<img class="cell-thumb" src="${enc(c.matched_image)}" alt="" loading="lazy" />`
+    : `<div class="cell-thumb placeholder">no img</div>`;
+  return `<td>
+    <div class="cell-flex">
+      ${img}
+      <div class="cell-body">
+        <div class="cell-price">${fmtMoney(c.matched_price)}</div>
+        <div class="cell-name" title="${enc(c.matched_name)}">${enc(c.matched_name)}</div>
+        <div class="cell-meta">
+          ${verdictBadge(c.verdict)}
+          <span class="score-num">${(c.score ?? 0).toFixed(2)}</span>
+        </div>
+        ${c.matched_url ? `<a class="cell-link" href="${enc(c.matched_url)}" target="_blank" rel="noopener">view ↗</a>` : ""}
+        ${!isDk ? `<div>${fmtDiff(c.price_diff_vs_dk)}</div>` : ""}
+      </div>
+    </div>
+  </td>`;
+}
 
-  const headerCells = COMPETITORS.map(([id, name]) =>
-    `<th class="px-2 py-2 text-left text-xs uppercase text-slate-600 border-l border-slate-200">${name}</th>`
-  ).join("");
+function renderResults(data, elapsed) {
+  $("elapsed-time").textContent = `${elapsed}s`;
+  $("results-section").style.display = "block";
+  requestAnimationFrame(() => $("results-section").classList.add("in"));
 
+  const compHits = data.results.reduce((n, r) =>
+    n + r.competitors.filter(c => c.matched_price != null).length, 0);
+  const cheaper = data.results.reduce((n, r) =>
+    n + r.competitors.filter(c => (c.price_diff_vs_dk ?? 0) < 0).length, 0);
+  const pricier = data.results.reduce((n, r) =>
+    n + r.competitors.filter(c => (c.price_diff_vs_dk ?? 0) > 0).length, 0);
+
+  $("summary").innerHTML = `
+    ${data.total} products
+    <span class="pill">${compHits} matches</span>
+    <span class="pill" style="background:var(--rust-tint);color:var(--rust)">${cheaper} pricier elsewhere</span>
+    <span class="pill" style="background:var(--emerald-tint);color:var(--emerald)">${pricier} cheaper elsewhere</span>
+  `;
+
+  const head = `
+    <th>#</th>
+    <th>Product name</th>
+    <th>Dentalkart.com</th>
+    ${COMPETITORS.map(([id, name]) => `<th>${name}</th>`).join("")}
+  `;
   const rows = data.results.map((r, i) => {
-    const dk = r.dentalkart;
-    const compCells = COMPETITORS.map(([id, _]) => {
+    const compCells = COMPETITORS.map(([id]) => {
       const c = r.competitors.find((x) => x.competitor_id === id);
       return cellHtml(c);
     }).join("");
-
     return `
-      <tr class="${i % 2 === 0 ? "bg-white" : "bg-slate-50"} border-t border-slate-200">
-        <td class="px-2 py-2 text-xs text-slate-400 align-top">${i + 1}</td>
-        <td class="px-2 py-2 align-top">
-          <div class="font-medium text-sm">${escapeHtml(dk.name)}</div>
-        </td>
+      <tr>
+        <td class="col-num">${i + 1}</td>
+        <td><div class="product-name">${enc(r.dentalkart.name)}</div></td>
         ${cellHtml(r.dentalkart_match, true)}
         ${compCells}
       </tr>
@@ -209,56 +713,16 @@ function renderResults(data) {
   }).join("");
 
   $("results").innerHTML = `
-    <div class="overflow-x-auto">
-      <table class="text-sm w-full">
-        <thead class="bg-slate-100 sticky top-0">
-          <tr>
-            <th class="px-2 py-2 text-left text-xs uppercase text-slate-600">#</th>
-            <th class="px-2 py-2 text-left text-xs uppercase text-slate-600">Product name (from xlsx)</th>
-            <th class="px-2 py-2 text-left text-xs uppercase text-slate-600 border-l border-slate-200">Dentalkart.com</th>
-            ${headerCells}
-          </tr>
-        </thead>
+    <div style="overflow-x:auto;">
+      <table class="compare-table">
+        <thead><tr>${head}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
   `;
 }
 
-function cellHtml(c, isDk = false) {
-  const borderLeft = "border-l border-slate-100";
-  if (!c || c.matched_price == null) {
-    return `<td class="px-2 py-2 text-xs text-slate-400 ${borderLeft} align-top">
-      <span class="block">no match</span>
-      <span class="block text-[10px] text-slate-300">${c?.candidates_seen ?? 0} seen</span>
-    </td>`;
-  }
-  const img = c.matched_image
-    ? `<img src="${c.matched_image}" alt="" loading="lazy"
-        class="w-12 h-12 object-contain rounded border border-slate-200 bg-white shrink-0" />`
-    : `<div class="w-12 h-12 rounded border border-slate-200 bg-slate-50 shrink-0 flex items-center justify-center text-[10px] text-slate-400">no img</div>`;
-  return `<td class="px-2 py-2 text-xs ${borderLeft} align-top">
-    <div class="flex gap-2">
-      ${img}
-      <div class="min-w-0 flex-1">
-        <div class="font-medium text-slate-800">${fmtMoney(c.matched_price)}</div>
-        <div class="text-[10px] text-slate-500 line-clamp-2" title="${escapeHtml(c.matched_name ?? "")}">${escapeHtml(c.matched_name ?? "")}</div>
-        <div class="mt-1 flex items-center gap-1">
-          ${verdictBadge(c.verdict)}
-          <span class="text-[10px] text-slate-400 font-mono">${(c.score ?? 0).toFixed(2)}</span>
-        </div>
-        ${c.matched_url ? `<a href="${c.matched_url}" target="_blank" rel="noopener" class="text-[10px] text-blue-600 hover:underline">open ↗</a>` : ""}
-        ${!isDk ? `<div class="text-[10px] mt-1">${fmtDiff(c.price_diff_vs_dk)}</div>` : ""}
-      </div>
-    </div>
-  </td>`;
-}
-
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]);
-}
-
-wireDropZone();
+logLine("ready · drop xlsx or click the zone");
 </script>
 </body>
 </html>
