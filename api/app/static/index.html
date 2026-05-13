@@ -8,210 +8,256 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
-    href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Geist:wght@300..700&family=JetBrains+Mono:wght@400;500&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet">
 
   <style>
     :root {
-      --canvas:    #fafaf7;
+      --canvas:    #f6f7f9;
       --paper:     #ffffff;
-      --ink:       #131211;
-      --ink-mute:  #6c685f;
-      --rule:      #e8e4da;
-      --rule-2:    #d6d1c4;
+      --ink:       #0e1217;
+      --ink-mute:  #6b7280;
+      --rule:      #e5e7eb;
+      --rule-2:    #d1d5db;
       --brand:     #2483b9;
       --brand-deep:#0f4e70;
-      --brand-tint:#e6f2f9;
-      --emerald:   #1e7f4f;
-      --emerald-tint:#dff3e8;
-      --rust:      #b94c25;
-      --rust-tint: #fbe6dc;
-      --gold:      #8a6a17;
-      --gold-tint: #f6ecd4;
+      --brand-tint:#e9f2f8;
+      --emerald:   #15803d;
+      --emerald-tint:#dcfce7;
+      --rust:      #b91c1c;
+      --rust-tint: #fee2e2;
+      --gold:      #92400e;
+      --gold-tint: #fef3c7;
     }
 
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: var(--canvas); color: var(--ink); }
 
     body {
-      font-family: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
       font-weight: 400;
-      line-height: 1.45;
+      line-height: 1.5;
       -webkit-font-smoothing: antialiased;
       text-rendering: optimizeLegibility;
-      background-image:
-        radial-gradient(at 0% 0%, rgba(36, 131, 185, 0.05) 0px, transparent 40%),
-        radial-gradient(at 100% 0%, rgba(15, 78, 112, 0.04) 0px, transparent 30%);
       min-height: 100vh;
-    }
-
-    .serif {
-      font-family: 'Fraunces', 'Georgia', serif;
-      font-variation-settings: 'opsz' 144, 'SOFT' 50, 'WONK' 0;
-      letter-spacing: -0.02em;
     }
     .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
 
     .container { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
 
-    /* ── Header ─────────────────────────────── */
+    /* ── Top bar ─────────────────────────── */
     .topbar {
       border-bottom: 1px solid var(--rule);
       background: var(--paper);
+      position: sticky; top: 0; z-index: 10;
     }
     .topbar-inner {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 22px 0;
+      padding: 18px 0;
     }
-    .brandmark {
-      display: flex; align-items: center; gap: 14px;
+    .brandmark { display: flex; align-items: center; gap: 14px; }
+    .brandmark img { height: 30px; width: auto; display: block; }
+    .brandmark .divider { width: 1px; height: 24px; background: var(--rule-2); }
+    .brandmark .label {
+      font-size: 12px; color: var(--ink-mute); letter-spacing: 0.02em;
     }
-    .brandmark img { height: 32px; width: auto; display: block; }
-    .brandmark .divider {
-      width: 1px; height: 28px; background: var(--rule-2);
+    .brandmark .label strong {
+      color: var(--ink); font-weight: 600; letter-spacing: -0.01em;
     }
-    .brandmark .product-label {
-      font-size: 11px; letter-spacing: 0.16em;
-      text-transform: uppercase; color: var(--ink-mute);
-    }
-    .brandmark .product-label strong { color: var(--ink); font-weight: 500; }
-
-    .topbar a.docs-link {
+    .docs-link {
       color: var(--ink-mute); text-decoration: none; font-size: 13px;
-      letter-spacing: 0.02em; border-bottom: 1px solid var(--rule-2);
-      padding-bottom: 2px; transition: color .15s, border-color .15s;
+      padding: 6px 10px; border: 1px solid var(--rule); border-radius: 6px;
+      transition: all .15s;
     }
-    .topbar a.docs-link:hover { color: var(--brand); border-color: var(--brand); }
+    .docs-link:hover {
+      color: var(--brand); border-color: var(--brand);
+    }
 
-    /* ── Hero ──────────────────────────────── */
-    .hero { padding: 56px 0 36px; }
+    /* ── Hero ────────────────────────────── */
+    .hero { padding: 44px 0 28px; }
     .hero-eyebrow {
-      font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
-      color: var(--brand); font-weight: 500; margin: 0 0 14px;
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 12px; letter-spacing: 0.04em; color: var(--brand-deep);
+      background: var(--brand-tint); border-radius: 999px;
+      padding: 5px 12px; margin: 0 0 18px; font-weight: 500;
     }
     .hero h1 {
-      margin: 0 0 16px; font-size: clamp(38px, 5.4vw, 64px);
-      line-height: 1.02; font-weight: 400; max-width: 22ch;
-    }
-    .hero h1 em {
-      font-style: italic; font-weight: 300; color: var(--brand-deep);
+      margin: 0 0 12px; font-size: clamp(32px, 4vw, 44px);
+      line-height: 1.1; font-weight: 600; letter-spacing: -0.02em;
+      max-width: 22ch; color: var(--ink);
     }
     .hero p.lede {
-      font-size: 17px; color: var(--ink-mute); max-width: 56ch;
-      margin: 0; line-height: 1.55;
+      font-size: 15px; color: var(--ink-mute); max-width: 64ch;
+      margin: 0; line-height: 1.6;
     }
 
-    /* ── Cards / sections ──────────────────── */
+    /* ── Card ────────────────────────────── */
     .card {
       background: var(--paper); border: 1px solid var(--rule);
-      border-radius: 6px; padding: 28px 32px;
+      border-radius: 10px; padding: 26px 28px;
+      box-shadow: 0 1px 0 rgba(15, 23, 42, .02);
     }
     .section-label {
-      font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
-      color: var(--ink-mute); margin: 0 0 18px; font-weight: 500;
+      display: flex; align-items: center; gap: 10px;
+      font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--ink-mute); margin: 0 0 16px; font-weight: 600;
+    }
+    .section-label .num {
+      width: 22px; height: 22px; display: inline-flex;
+      align-items: center; justify-content: center;
+      background: var(--brand-tint); color: var(--brand-deep);
+      border-radius: 50%; font-size: 10px; font-weight: 700;
+      letter-spacing: 0;
+    }
+    .helper-text {
+      font-size: 13px; color: var(--ink-mute);
+      margin: -6px 0 16px;
     }
 
-    /* ── Dropzone ──────────────────────────── */
+    /* ── Quick search ───────────────────── */
+    .quick-row { display: flex; gap: 10px; align-items: stretch; }
+    .quick-row input[type="text"] {
+      flex: 1; padding: 12px 16px;
+      border: 1px solid var(--rule-2); border-radius: 8px;
+      font-family: inherit; font-size: 14px; color: var(--ink);
+      background: var(--paper); transition: all .15s;
+    }
+    .quick-row input[type="text"]:focus {
+      outline: none; border-color: var(--brand);
+      box-shadow: 0 0 0 3px rgba(36, 131, 185, 0.12);
+    }
+    .btn-primary {
+      padding: 12px 22px;
+      background: var(--brand); color: white;
+      font-family: inherit; font-size: 14px; font-weight: 500;
+      border: 0; border-radius: 8px; cursor: pointer;
+      transition: background .15s, transform .05s;
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .btn-primary:hover { background: var(--brand-deep); }
+    .btn-primary:active { transform: translateY(1px); }
+    .btn-primary:disabled {
+      background: var(--rule-2); cursor: not-allowed;
+    }
+
+    .btn-ghost {
+      padding: 9px 14px;
+      background: transparent; color: var(--ink-mute);
+      font-family: inherit; font-size: 13px; font-weight: 500;
+      border: 1px solid var(--rule-2); border-radius: 6px;
+      cursor: pointer; transition: all .15s;
+    }
+    .btn-ghost:hover {
+      color: var(--rust); border-color: var(--rust);
+    }
+
+    /* ── Drop zone ───────────────────────── */
     .dropzone {
+      position: relative;
       border: 1.5px dashed var(--rule-2);
-      border-radius: 8px; padding: 56px 24px; text-align: center;
+      border-radius: 10px; padding: 44px 24px; text-align: center;
       cursor: pointer; transition: all .2s;
-      background:
-        repeating-linear-gradient(
-          135deg,
-          transparent 0,
-          transparent 18px,
-          rgba(36, 131, 185, 0.018) 18px,
-          rgba(36, 131, 185, 0.018) 19px
-        );
+      background: var(--paper);
     }
     .dropzone:hover, .dropzone.hot {
       border-color: var(--brand);
       background: var(--brand-tint);
     }
+    .dropzone .dz-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 48px; height: 48px; border-radius: 50%;
+      background: var(--brand-tint); color: var(--brand-deep);
+      margin: 0 0 14px; transition: all .2s;
+    }
+    .dropzone:hover .dz-icon, .dropzone.hot .dz-icon {
+      background: var(--brand); color: white;
+    }
     .dropzone .dz-title {
-      font-family: 'Fraunces', serif; font-style: italic; font-weight: 400;
-      font-size: 24px; margin: 0 0 8px; color: var(--ink);
+      font-size: 16px; font-weight: 500; color: var(--ink);
+      margin: 0 0 6px;
     }
     .dropzone .dz-sub {
       font-size: 13px; color: var(--ink-mute); margin: 0;
     }
-    .dropzone .dz-sub strong { color: var(--ink); font-weight: 500; }
-    .dropzone .dz-arrow {
-      display: inline-block; margin-bottom: 16px;
-      width: 56px; height: 56px; border: 1px solid var(--brand);
-      border-radius: 50%; line-height: 54px;
-      color: var(--brand); font-size: 22px;
-      transition: transform .2s;
-    }
-    .dropzone:hover .dz-arrow, .dropzone.hot .dz-arrow {
-      transform: translateY(-3px);
-      background: var(--brand); color: white;
+    .dropzone.disabled {
+      pointer-events: none; opacity: 0.4;
+      filter: grayscale(0.5);
     }
 
     .controls-row {
-      margin-top: 18px; display: flex; gap: 18px; align-items: center;
+      margin-top: 16px; display: flex; gap: 14px; align-items: center;
       font-size: 13px; color: var(--ink-mute);
     }
     .controls-row input[type=number] {
-      width: 56px; padding: 6px 8px; border: 1px solid var(--rule-2);
-      border-radius: 4px; font-family: inherit; font-size: 13px;
-      background: var(--paper);
+      width: 52px; padding: 7px 8px;
+      border: 1px solid var(--rule-2); border-radius: 6px;
+      font-family: inherit; font-size: 13px; background: var(--paper);
     }
     .controls-row input[type=number]:focus {
       outline: none; border-color: var(--brand);
+      box-shadow: 0 0 0 2px rgba(36, 131, 185, 0.12);
     }
 
-    /* ── Loading state ─────────────────────── */
-    .loading-wrap {
-      display: none; padding: 0; overflow: hidden;
+    /* ── Loading panel ───────────────────── */
+    .loading-card {
+      padding: 0; overflow: hidden;
     }
-    .loading-wrap.active { display: block; }
     .loading-grid {
-      display: grid; grid-template-columns: 1fr 1.4fr; gap: 0;
+      display: grid; grid-template-columns: 1fr 1.3fr;
       min-height: 360px;
     }
     .loading-left {
-      padding: 40px 36px; border-right: 1px solid var(--rule);
+      padding: 36px 32px; border-right: 1px solid var(--rule);
       display: flex; flex-direction: column; justify-content: space-between;
+      gap: 24px;
     }
     .loading-right {
-      padding: 40px 36px; background: linear-gradient(
-        135deg, var(--brand-tint) 0%, transparent 70%
-      );
+      padding: 36px 32px;
+      background: linear-gradient(135deg, var(--brand-tint) 0%, transparent 70%);
+      position: relative;
     }
     .pulse-mark {
-      width: 56px; height: 56px; border-radius: 50%;
+      width: 52px; height: 52px; border-radius: 50%;
       background: var(--brand); position: relative;
       display: flex; align-items: center; justify-content: center;
-      color: white; font-family: 'Fraunces', serif; font-style: italic;
-      font-size: 28px; line-height: 1;
+      color: white; font-weight: 600; font-size: 24px; line-height: 1;
     }
     .pulse-mark::before, .pulse-mark::after {
       content: ''; position: absolute; inset: 0;
-      border-radius: 50%; border: 1px solid var(--brand);
+      border-radius: 50%; border: 1.5px solid var(--brand);
       animation: pulse-out 2.4s cubic-bezier(.4,0,.2,1) infinite;
     }
     .pulse-mark::after { animation-delay: 1.2s; }
     @keyframes pulse-out {
       0%   { transform: scale(1);    opacity: .6; }
-      100% { transform: scale(2.4); opacity: 0;   }
+      100% { transform: scale(2.2); opacity: 0;   }
     }
 
     .loading-title {
-      font-family: 'Fraunces', serif; font-size: 32px; line-height: 1.1;
-      font-weight: 300; margin: 28px 0 12px;
+      font-size: 24px; font-weight: 600; line-height: 1.2;
+      margin: 22px 0 8px; letter-spacing: -0.01em;
     }
-    .loading-title em { font-style: italic; color: var(--brand-deep); }
+    .loading-sub {
+      font-size: 14px; color: var(--ink-mute); margin: 0;
+      line-height: 1.5;
+    }
     .loading-meta {
-      font-size: 13px; color: var(--ink-mute); margin: 0;
+      display: flex; flex-wrap: wrap; gap: 16px;
+      font-size: 12px; color: var(--ink-mute); margin: 16px 0 0;
     }
-    .loading-meta span.mono {
+    .loading-meta .stat {
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .loading-meta .stat-label {
+      font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .loading-meta .stat-value {
+      font-family: 'JetBrains Mono', monospace; font-size: 14px;
       color: var(--ink); font-weight: 500;
     }
 
     .progress-bar {
-      margin-top: 28px; height: 3px; background: var(--rule);
+      height: 4px; background: var(--rule);
       border-radius: 2px; overflow: hidden; position: relative;
     }
     .progress-bar::after {
@@ -231,69 +277,81 @@
       100% { transform: translateX(100%);  }
     }
 
-    /* About Dentalkart card carousel */
+    .cancel-row {
+      display: flex; gap: 12px; align-items: center;
+    }
+
+    /* About Dentalkart cards */
+    .fact-tag {
+      font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--brand-deep); font-weight: 600; margin: 0 0 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .fact-tag::before {
+      content: ''; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--brand);
+    }
     .fact-stage {
-      position: relative; min-height: 220px;
+      position: relative; min-height: 200px;
     }
     .fact {
       position: absolute; inset: 0;
-      opacity: 0; transition: opacity .8s ease, transform .8s ease;
-      transform: translateY(6px);
+      opacity: 0; transition: opacity .6s ease, transform .6s ease;
+      transform: translateY(8px);
     }
     .fact.active { opacity: 1; transform: translateY(0); }
-    .fact-tag {
-      font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
-      color: var(--brand-deep); font-weight: 500; margin: 0 0 14px;
-    }
     .fact-headline {
-      font-family: 'Fraunces', serif; font-size: 26px; line-height: 1.18;
-      font-weight: 400; margin: 0 0 14px; max-width: 22ch;
+      font-size: 22px; line-height: 1.25; font-weight: 600;
+      margin: 0 0 12px; max-width: 24ch; letter-spacing: -0.01em;
+      color: var(--ink);
     }
-    .fact-headline em { font-style: italic; }
     .fact-body {
       font-size: 14px; color: var(--ink); margin: 0; max-width: 42ch;
       line-height: 1.55;
     }
-
     .fact-dots {
-      display: flex; gap: 7px; margin-top: 24px;
+      display: flex; gap: 6px; margin-top: 20px;
     }
     .fact-dots .dot {
       width: 6px; height: 6px; border-radius: 50%;
       background: var(--rule-2); transition: width .3s, background .3s;
     }
-    .fact-dots .dot.active { background: var(--brand); width: 24px; border-radius: 3px; }
+    .fact-dots .dot.active {
+      background: var(--brand); width: 22px; border-radius: 3px;
+    }
 
-    /* ── Results ───────────────────────────── */
+    /* ── Results ─────────────────────────── */
     .results-card { padding: 0; }
     .results-head {
-      padding: 22px 32px; display: flex; align-items: center;
+      padding: 20px 28px; display: flex; align-items: center;
       justify-content: space-between; border-bottom: 1px solid var(--rule);
     }
     .results-head h2 {
-      font-family: 'Fraunces', serif; font-weight: 400;
-      font-size: 22px; margin: 0; letter-spacing: -0.01em;
+      font-size: 18px; font-weight: 600; margin: 0;
+      letter-spacing: -0.01em;
     }
     .results-summary {
-      font-size: 13px; color: var(--ink-mute);
+      font-size: 12px; color: var(--ink-mute);
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     }
-    .results-summary .pill {
+    .pill {
       display: inline-flex; align-items: center; gap: 6px;
-      padding: 3px 10px; background: var(--brand-tint);
-      color: var(--brand-deep); border-radius: 12px;
-      font-weight: 500; margin-left: 10px;
+      padding: 4px 10px; border-radius: 999px;
+      font-size: 12px; font-weight: 500;
+      background: var(--brand-tint); color: var(--brand-deep);
     }
+    .pill.emerald { background: var(--emerald-tint); color: var(--emerald); }
+    .pill.rust { background: var(--rust-tint); color: var(--rust); }
 
     table.compare-table {
       width: 100%; border-collapse: collapse; font-size: 13px;
     }
     table.compare-table th {
-      text-align: left; padding: 14px 16px;
-      font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
-      color: var(--ink-mute); font-weight: 500;
+      text-align: left; padding: 12px 16px;
+      font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--ink-mute); font-weight: 600;
       border-bottom: 1px solid var(--rule);
-      background: #fdfcf9;
-      position: sticky; top: 0;
+      background: #fafbfc; position: sticky; top: 0; z-index: 1;
     }
     table.compare-table td {
       padding: 16px; border-bottom: 1px solid var(--rule);
@@ -303,47 +361,45 @@
       background: rgba(36, 131, 185, 0.025);
     }
     table.compare-table tr:last-child td { border-bottom: 0; }
-    .col-num { width: 36px; color: var(--ink-mute); font-size: 11px; }
+    .col-num { width: 36px; color: var(--ink-mute); font-size: 11px; font-family: 'JetBrains Mono', monospace; }
     .product-name {
-      font-weight: 500; line-height: 1.35; max-width: 30ch;
+      font-weight: 500; line-height: 1.4; max-width: 30ch;
     }
 
     .cell-flex { display: flex; gap: 12px; }
     .cell-thumb {
-      width: 54px; height: 54px; border-radius: 4px;
+      width: 52px; height: 52px; border-radius: 6px;
       border: 1px solid var(--rule); background: var(--paper);
       object-fit: contain; flex-shrink: 0;
     }
     .cell-thumb.placeholder {
       display: flex; align-items: center; justify-content: center;
-      font-size: 9px; color: var(--ink-mute); background: #f4f1ea;
+      font-size: 9px; color: var(--ink-mute); background: #f3f4f6;
     }
     .cell-body { min-width: 0; flex: 1; }
     .cell-price {
       font-family: 'JetBrains Mono', monospace;
       font-size: 15px; font-weight: 500; color: var(--ink);
-      letter-spacing: -0.01em;
     }
     .cell-name {
-      font-size: 11px; color: var(--ink-mute);
+      font-size: 11px; color: var(--ink-mute); line-height: 1.4;
       overflow: hidden; text-overflow: ellipsis;
       display: -webkit-box; -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical; line-height: 1.35;
-      margin-top: 2px; max-width: 180px;
+      -webkit-box-orient: vertical; margin-top: 3px; max-width: 180px;
     }
     .cell-meta {
       display: flex; gap: 8px; align-items: center;
-      margin-top: 6px; flex-wrap: wrap;
+      margin-top: 8px; flex-wrap: wrap;
     }
     .badge {
-      display: inline-block; font-size: 9px; letter-spacing: 0.12em;
-      text-transform: uppercase; padding: 3px 7px; border-radius: 3px;
+      display: inline-block; font-size: 9px; letter-spacing: 0.08em;
+      text-transform: uppercase; padding: 3px 8px; border-radius: 4px;
       font-weight: 600;
     }
     .badge.confirmed { background: var(--emerald-tint); color: var(--emerald); }
-    .badge.possible  { background: var(--gold-tint); color: var(--gold); }
-    .badge.variant   { background: var(--rust-tint); color: var(--rust); }
-    .badge.rejected  { background: #f0eee8; color: var(--ink-mute); }
+    .badge.possible  { background: var(--gold-tint);    color: var(--gold);    }
+    .badge.variant   { background: var(--rust-tint);    color: var(--rust);    }
+    .badge.rejected  { background: #f3f4f6;             color: var(--ink-mute);}
     .score-num {
       font-family: 'JetBrains Mono', monospace; font-size: 11px;
       color: var(--ink-mute);
@@ -356,44 +412,47 @@
     .cell-link:hover { border-color: var(--brand); }
     .delta {
       font-size: 11px; margin-top: 6px;
-      font-family: 'JetBrains Mono', monospace; letter-spacing: -0.01em;
+      font-family: 'JetBrains Mono', monospace;
     }
     .delta.cheaper { color: var(--emerald); font-weight: 600; }
     .delta.pricier { color: var(--rust); }
     .empty-cell {
-      color: var(--ink-mute); font-size: 12px; font-style: italic;
+      color: var(--ink-mute); font-size: 12px;
     }
     .empty-cell small {
       display: block; font-size: 10px; color: var(--rule-2);
-      font-style: normal; margin-top: 2px; letter-spacing: 0.04em;
+      margin-top: 4px;
     }
 
-    /* ── Status / log ──────────────────────── */
+    /* ── Status / log ───────────────────── */
     .status-msg {
       margin-top: 14px; font-size: 13px; color: var(--ink-mute);
     }
-    .status-msg.ok { color: var(--emerald); font-weight: 500; }
+    .status-msg.ok  { color: var(--emerald); font-weight: 500; }
     .status-msg.err { color: var(--rust); font-weight: 500; }
     .debug-log {
       margin-top: 14px; font-family: 'JetBrains Mono', monospace;
-      font-size: 11px; background: #fdfcf9; border: 1px solid var(--rule);
-      border-radius: 4px; padding: 10px 14px; max-height: 140px;
+      font-size: 11px; background: #fafbfc; border: 1px solid var(--rule);
+      border-radius: 6px; padding: 10px 14px; max-height: 120px;
       overflow: auto; color: var(--ink-mute); white-space: pre;
     }
     .debug-log:empty { display: none; }
 
-    /* ── Reveal animations ─────────────────── */
+    /* ── Reveal ─────────────────────────── */
     .reveal { opacity: 0; transform: translateY(8px); }
     .reveal.in {
       opacity: 1; transform: none;
-      transition: opacity .55s ease, transform .55s cubic-bezier(.4, .0, .2, 1);
+      transition: opacity .5s ease, transform .5s cubic-bezier(.4, .0, .2, 1);
     }
+
+    .stack { display: flex; flex-direction: column; gap: 22px; }
 
     @media (max-width: 820px) {
       .container { padding: 0 20px; }
       .loading-grid { grid-template-columns: 1fr; }
       .loading-left { border-right: 0; border-bottom: 1px solid var(--rule); }
-      .hero { padding: 36px 0 24px; }
+      .hero { padding: 28px 0 18px; }
+      .quick-row { flex-direction: column; }
     }
   </style>
 </head>
@@ -404,87 +463,128 @@
       <div class="brandmark">
         <img src="/static/dentalkart-logo.svg" alt="Dentalkart" />
         <div class="divider"></div>
-        <span class="product-label"><strong>Competitive Pricing</strong> · v0.2</span>
+        <span class="label"><strong>Competitive Pricing</strong> · v0.2</span>
       </div>
-      <a href="/docs" target="_blank" class="docs-link">API explorer →</a>
+      <a href="/docs" target="_blank" class="docs-link">API explorer</a>
     </div>
   </header>
 
   <section class="container hero reveal" id="hero">
-    <p class="hero-eyebrow">Internal tool</p>
-    <h1 class="serif">Watch the market <em>against your catalog,</em> in real time.</h1>
+    <p class="hero-eyebrow">Internal tool · live</p>
+    <h1>Watch the market against your catalog, in real time.</h1>
     <p class="lede">
-      Drop an Excel of Dentalkart products. We search dentalkart.com plus Pinkblue,
-      Oralkart and Dentmark in parallel, run every candidate through a sentence-transformer
-      matching pipeline, and show you where each product is cheaper or pricier — row by row.
+      Drop an Excel of products or search a single SKU. We query dentalkart.com plus Pinkblue,
+      Oralkart and Dentmark in parallel, run every candidate through a sentence-transformer matcher,
+      and show you where each product is cheaper or pricier — row by row.
     </p>
   </section>
 
-  <section class="container reveal" id="upload-section" style="margin-bottom: 28px;">
-    <div class="card">
-      <p class="section-label">01 · Upload your catalog</p>
-      <div id="dropZone" class="dropzone">
-        <div class="dz-arrow">↑</div>
-        <p class="dz-title">Drop your product list</p>
-        <p class="dz-sub">
-          Excel <strong>.xlsx</strong> with a <strong>Product Name</strong> column.
-          Other columns are ignored.
+  <!-- Upload mode (shown when idle) -->
+  <section class="container reveal" id="upload-section" style="margin-bottom: 32px;">
+    <div class="stack">
+
+      <!-- 01 · Quick search -->
+      <div class="card">
+        <p class="section-label"><span class="num">1</span>Quick search</p>
+        <p class="helper-text">Type one product name to test a single comparison.</p>
+        <div class="quick-row">
+          <input
+            type="text"
+            id="quickInput"
+            placeholder="e.g. Wizdent Master Design Restorative Composite Refill - A3B"
+            autocomplete="off"
+          />
+          <button class="btn-primary" id="quickGo">
+            Compare
+            <span aria-hidden="true">→</span>
+          </button>
+        </div>
+        <div id="quick-status" class="status-msg"></div>
+      </div>
+
+      <!-- 02 · Batch upload -->
+      <div class="card">
+        <p class="section-label"><span class="num">2</span>Batch upload</p>
+        <p class="helper-text">
+          Excel <strong>.xlsx</strong> with a <strong>Product Name</strong> column. Other columns are ignored.
         </p>
-        <input type="file" id="fileInput" accept=".xlsx" style="display:none" />
+        <div id="dropZone" class="dropzone">
+          <div class="dz-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 19V5M5 12l7-7 7 7"/>
+            </svg>
+          </div>
+          <p class="dz-title">Drop your product list</p>
+          <p class="dz-sub">or click to browse</p>
+          <input type="file" id="fileInput" accept=".xlsx" style="display:none" />
+        </div>
+        <div class="controls-row">
+          <span>Rows in parallel</span>
+          <input id="concurrency" type="number" min="1" max="6" value="2" />
+          <span style="opacity:.7">— higher is faster, lower is friendlier to competitor sites.</span>
+        </div>
+        <div id="status" class="status-msg"></div>
+        <pre id="log" class="debug-log"></pre>
       </div>
 
-      <div class="controls-row">
-        <span>Rows in parallel</span>
-        <input id="concurrency" type="number" min="1" max="6" value="2" />
-        <span style="opacity:.7">— higher is faster, lower is friendlier to competitor sites.</span>
-      </div>
-
-      <div id="status" class="status-msg"></div>
-      <pre id="log" class="debug-log"></pre>
     </div>
   </section>
 
-  <section class="container reveal" id="loading-section" style="display:none; margin-bottom: 28px;">
-    <div class="card loading-wrap active" style="padding:0;">
+  <!-- Loading panel (shown only during a run) -->
+  <section class="container reveal" id="loading-section" style="display:none; margin-bottom: 32px;">
+    <div class="card loading-card">
       <div class="loading-grid">
-
         <div class="loading-left">
           <div>
             <div class="pulse-mark">D</div>
-            <h2 class="loading-title">
-              Comparing <em id="lt-name">your products</em><br/>across the market.
-            </h2>
-            <p class="loading-meta">
-              Querying <span class="mono">4 sources</span> per row ·
-              Concurrency <span class="mono" id="lt-conc">2</span> ·
-              Elapsed <span class="mono" id="lt-elapsed">0s</span>
-            </p>
+            <h2 class="loading-title" id="lt-headline">Comparing your products…</h2>
+            <p class="loading-sub" id="lt-sub">Querying 4 sources in parallel and matching every candidate with the Python pipeline.</p>
+            <div class="loading-meta">
+              <div class="stat">
+                <span class="stat-label">Elapsed</span>
+                <span class="stat-value" id="lt-elapsed">0s</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Mode</span>
+                <span class="stat-value" id="lt-mode">batch</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Concurrency</span>
+                <span class="stat-value" id="lt-conc">2</span>
+              </div>
+            </div>
           </div>
-          <div class="progress-bar"></div>
+          <div>
+            <div class="progress-bar" style="margin-bottom: 16px;"></div>
+            <div class="cancel-row">
+              <button class="btn-ghost" id="cancelBtn">Cancel</button>
+              <span style="font-size:12px;color:var(--ink-mute)">You can drop a new file once this run finishes.</span>
+            </div>
+          </div>
         </div>
 
         <div class="loading-right">
           <p class="fact-tag">About Dentalkart</p>
           <div class="fact-stage">
             <article class="fact active" data-i="0">
-              <h3 class="fact-headline serif">India's online <em>marketplace for dental care.</em></h3>
+              <h3 class="fact-headline">India's online marketplace for dental care.</h3>
               <p class="fact-body">Dentalkart connects clinicians, dental colleges and labs with thousands of supplies, instruments, and equipment — all in one curated catalog.</p>
             </article>
             <article class="fact" data-i="1">
-              <h3 class="fact-headline serif">Stocking <em>500+ trusted brands.</em></h3>
+              <h3 class="fact-headline">500+ trusted brands, one storefront.</h3>
               <p class="fact-body">From 3M and GC to Septodont, Dentsply, Woodpecker and beyond — Dentalkart is built around the manufacturers practitioners already trust.</p>
             </article>
             <article class="fact" data-i="2">
-              <h3 class="fact-headline serif">Faster <em>price intelligence.</em></h3>
+              <h3 class="fact-headline">Continuous price intelligence.</h3>
               <p class="fact-body">Every product on the platform is monitored against competing marketplaces, so pricing stays sharp without manual checks.</p>
             </article>
             <article class="fact" data-i="3">
-              <h3 class="fact-headline serif">Designed for <em>the working clinic.</em></h3>
-              <p class="fact-body">Bulk ordering, GST invoicing, and reliable dispatch — built for clinics, dental colleges, and labs across India.</p>
+              <h3 class="fact-headline">Designed for the working clinic.</h3>
+              <p class="fact-body">Bulk ordering, GST invoicing, and reliable dispatch — built for clinics, dental colleges and labs across India.</p>
             </article>
             <article class="fact" data-i="4">
-              <h3 class="fact-headline serif">Matching is doing <em>NLP work right now.</em></h3>
-              <p class="fact-body">Each candidate is normalized, gated for incompatible types, embedded by a sentence transformer, weighted with token + fuzzy overlap, and ranked.</p>
+              <h3 class="fact-headline">NLP matching at work right now.</h3>
+              <p class="fact-body">Each candidate is normalized, gated for incompatible types, embedded by a sentence transformer, then weighted with token + fuzzy overlap to rank the best match.</p>
             </article>
           </div>
           <div class="fact-dots">
@@ -503,7 +603,7 @@
   <section class="container reveal" id="results-section" style="display:none; margin-bottom: 56px;">
     <div class="card results-card">
       <div class="results-head">
-        <h2 class="serif">Results <em style="font-style:italic;color:var(--ink-mute);font-weight:300;">— matched in <span id="elapsed-time" class="mono" style="font-size:14px;">0s</span></em></h2>
+        <h2>Results <span style="color:var(--ink-mute);font-weight:400;font-size:14px;margin-left:6px;">— matched in <span id="elapsed-time" class="mono">0s</span></span></h2>
         <div class="results-summary" id="summary"></div>
       </div>
       <div id="results"></div>
@@ -530,19 +630,18 @@ function logLine(msg) {
 }
 window.addEventListener("error", (e) => logLine(`JS ERROR: ${e.message} @ ${e.filename}:${e.lineno}`));
 
-/* ── Reveal-on-load ──────────────────────── */
+/* Reveal-on-load */
 requestAnimationFrame(() => {
   document.querySelectorAll(".reveal").forEach((el, i) => {
     setTimeout(() => el.classList.add("in"), 80 * i);
   });
 });
 
-/* ── Fact carousel ───────────────────────── */
-let factIdx = 0;
-let factTimer = null;
+/* Fact carousel */
+let factIdx = 0, factTimer = null;
 function rotateFact() {
   const facts = document.querySelectorAll(".fact");
-  const dots = document.querySelectorAll(".fact-dots .dot");
+  const dots  = document.querySelectorAll(".fact-dots .dot");
   if (!facts.length) return;
   facts[factIdx].classList.remove("active");
   dots[factIdx].classList.remove("active");
@@ -561,12 +660,12 @@ function stopFacts() {
   if (factTimer) { clearInterval(factTimer); factTimer = null; }
 }
 
-/* ── Elapsed timer ───────────────────────── */
+/* Elapsed timer */
 let timerHandle = null, timerStart = 0;
 function startTimer() {
   timerStart = performance.now();
   const tick = () => {
-    const s = ((performance.now() - timerStart) / 1000);
+    const s = (performance.now() - timerStart) / 1000;
     const txt = s < 60 ? `${s.toFixed(0)}s` : `${Math.floor(s/60)}m ${Math.floor(s%60)}s`;
     const a = $("lt-elapsed"); if (a) a.textContent = txt;
   };
@@ -578,7 +677,40 @@ function stopTimer() {
   return ((performance.now() - timerStart) / 1000).toFixed(1);
 }
 
-/* ── Dropzone ────────────────────────────── */
+/* UI state transitions */
+function setRunning(mode, label) {
+  $("upload-section").style.display = "none";
+  $("results-section").style.display = "none";
+  $("loading-section").style.display = "block";
+  requestAnimationFrame(() => $("loading-section").classList.add("in"));
+  $("lt-mode").textContent = mode;
+  $("lt-headline").textContent = mode === "batch"
+    ? `Comparing ${label}…`
+    : `Searching “${label}”…`;
+  $("lt-sub").textContent = mode === "batch"
+    ? "Querying 4 sources per row in parallel and matching every candidate."
+    : "Querying 4 sources and ranking every candidate.";
+  startTimer();
+  startFacts();
+}
+function setIdle() {
+  stopTimer(); stopFacts();
+  $("loading-section").style.display = "none";
+  $("upload-section").style.display = "block";
+}
+
+/* Abort plumbing */
+let currentAbort = null;
+$("cancelBtn").addEventListener("click", () => {
+  if (currentAbort) {
+    currentAbort.abort();
+    logLine("user cancelled");
+  }
+  setIdle();
+  $("status").innerHTML = `<span class="status-msg">Cancelled.</span>`;
+});
+
+/* ── Batch upload ────────────────────── */
 const zone = $("dropZone");
 const input = $("fileInput");
 zone.addEventListener("click", () => input.click());
@@ -592,51 +724,90 @@ input.addEventListener("change", () => {
   if (input.files.length) runBatch(input.files[0]);
 });
 
-/* ── Main flow ───────────────────────────── */
 async function runBatch(file) {
   const conc = parseInt($("concurrency").value, 10) || 2;
-  logLine(`runBatch ${file.name} (${file.size} bytes) concurrency=${conc}`);
-
-  $("status").innerHTML = "";
-  $("results-section").style.display = "none";
-  $("loading-section").style.display = "block";
-  requestAnimationFrame(() => $("loading-section").classList.add("in"));
-
-  $("lt-name").textContent = file.name.replace(/\.xlsx$/i, "");
   $("lt-conc").textContent = conc;
-  startTimer();
-  startFacts();
+  logLine(`runBatch ${file.name} (${file.size} bytes) concurrency=${conc}`);
+  setRunning("batch", file.name.replace(/\.xlsx$/i, ""));
 
+  currentAbort = new AbortController();
   const fd = new FormData();
   fd.append("file", file);
 
   let res;
   try {
-    res = await fetch(`/compare/batch?concurrency=${conc}`, { method: "POST", body: fd });
+    res = await fetch(`/compare/batch?concurrency=${conc}`, {
+      method: "POST", body: fd, signal: currentAbort.signal,
+    });
   } catch (e) {
-    stopTimer(); stopFacts();
-    $("loading-section").style.display = "none";
-    $("status").innerHTML = `<span class="err">Network error: ${enc(e.message)}</span>`;
+    if (e.name === "AbortError") return;
+    setIdle();
+    $("status").innerHTML = `<span class="status-msg err">Network error: ${enc(e.message)}</span>`;
     return;
   }
+  await handleResponse(res, "batch");
+}
 
+/* ── Single quick search ─────────────── */
+const quickInput = $("quickInput");
+const quickGo = $("quickGo");
+
+async function runQuick() {
+  const name = quickInput.value.trim();
+  if (!name) {
+    $("quick-status").innerHTML = `<span class="status-msg err">Enter a product name first.</span>`;
+    return;
+  }
+  $("lt-conc").textContent = "—";
+  logLine(`runQuick ${JSON.stringify(name)}`);
+  setRunning("single", name);
+
+  currentAbort = new AbortController();
+  let res;
+  try {
+    res = await fetch("/compare/single", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name }),
+      signal: currentAbort.signal,
+    });
+  } catch (e) {
+    if (e.name === "AbortError") return;
+    setIdle();
+    $("quick-status").innerHTML = `<span class="status-msg err">Network error: ${enc(e.message)}</span>`;
+    return;
+  }
+  await handleResponse(res, "single");
+}
+quickGo.addEventListener("click", runQuick);
+quickInput.addEventListener("keydown", (e) => { if (e.key === "Enter") runQuick(); });
+
+/* ── Response handling ──────────────── */
+async function handleResponse(res, mode) {
   if (!res.ok) {
-    stopTimer(); stopFacts();
-    $("loading-section").style.display = "none";
+    setIdle();
     const err = await res.json().catch(() => ({}));
-    $("status").innerHTML = `<span class="err">Error: ${enc(err.detail || res.statusText)}</span>`;
+    const target = mode === "single" ? "quick-status" : "status";
+    $(target).innerHTML = `<span class="status-msg err">Error: ${enc(err.detail || res.statusText)}</span>`;
     return;
   }
-
   const data = await res.json();
   const elapsed = stopTimer();
   stopFacts();
-
   $("loading-section").style.display = "none";
-  $("status").innerHTML = `<span class="ok">Processed ${data.total} rows in ${elapsed}s.</span>`;
-  renderResults(data, elapsed);
+  $("upload-section").style.display = "block";
+
+  // Single result → wrap as a batch with total=1
+  const payload = mode === "single"
+    ? { total: 1, results: [data] }
+    : data;
+
+  const target = mode === "single" ? "quick-status" : "status";
+  $(target).innerHTML = `<span class="status-msg ok">Done — matched ${payload.total} ${payload.total === 1 ? "product" : "products"} in ${elapsed}s.</span>`;
+  renderResults(payload, elapsed);
 }
 
+/* ── Render ─────────────────────────── */
 function verdictBadge(v) {
   if (!v) return '<span class="empty-cell">—</span>';
   return `<span class="badge ${v}">${v}</span>`;
@@ -647,7 +818,6 @@ function fmtDiff(d) {
   if (d < 0) return `<span class="delta pricier">↑ ${fmtMoney(-d)} above DK</span>`;
   return `<span class="delta" style="color:var(--ink-mute)">= DK</span>`;
 }
-
 function cellHtml(c, isDk = false) {
   if (!c || c.matched_price == null) {
     return `<td><div class="empty-cell">no match<small>${c?.candidates_seen ?? 0} candidates scanned</small></div></td>`;
@@ -671,7 +841,6 @@ function cellHtml(c, isDk = false) {
     </div>
   </td>`;
 }
-
 function renderResults(data, elapsed) {
   $("elapsed-time").textContent = `${elapsed}s`;
   $("results-section").style.display = "block";
@@ -685,10 +854,10 @@ function renderResults(data, elapsed) {
     n + r.competitors.filter(c => (c.price_diff_vs_dk ?? 0) > 0).length, 0);
 
   $("summary").innerHTML = `
-    ${data.total} products
+    ${data.total} ${data.total === 1 ? "product" : "products"}
     <span class="pill">${compHits} matches</span>
-    <span class="pill" style="background:var(--rust-tint);color:var(--rust)">${cheaper} pricier elsewhere</span>
-    <span class="pill" style="background:var(--emerald-tint);color:var(--emerald)">${pricier} cheaper elsewhere</span>
+    <span class="pill rust">${cheaper} pricier elsewhere</span>
+    <span class="pill emerald">${pricier} cheaper elsewhere</span>
   `;
 
   const head = `
@@ -722,7 +891,7 @@ function renderResults(data, elapsed) {
   `;
 }
 
-logLine("ready · drop xlsx or click the zone");
+logLine("ready");
 </script>
 </body>
 </html>
