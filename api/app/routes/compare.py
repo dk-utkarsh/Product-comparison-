@@ -25,6 +25,7 @@ from app.matching.score import Verdict
 from app.matching.tokens import distinguishing_tokens
 from app.matching.triage import triage_batch
 from app.scrapers.bridge import COMPETITORS, CompetitorProduct, scrape_competitor
+from app.settings import get_settings
 
 router = APIRouter(prefix="/compare", tags=["compare"])
 
@@ -84,10 +85,25 @@ def _prefilter_candidates(
     return kept
 
 
+def _in_price_band(
+    cand_price: float, dk_price: float | None, max_ratio: float
+) -> bool:
+    """True when the competitor price is plausibly the same product as DK.
+
+    If we don't know the DK price (e.g. dentalkart.com had no match for
+    the row), we can't check price sanity — pass everything through.
+    """
+    if not dk_price or dk_price <= 0 or cand_price <= 0:
+        return True
+    ratio = cand_price / dk_price
+    return (1.0 / max_ratio) <= ratio <= max_ratio
+
+
 def _best_match(
     dk_name: str, candidates: list[CompetitorProduct], dk_price: float | None
 ) -> CompetitorMatch | None:
-    """Pre-filter, batch-triage, pick the highest-scoring confirmed/possible."""
+    """Pre-filter, batch-triage, pick the highest-scoring confirmed/possible
+    candidate that also lies within the DK price band."""
     if not candidates:
         return None
 
@@ -97,12 +113,18 @@ def _best_match(
         return None
 
     results = triage_batch(dk_name, [c.name for c in pool])
+    max_ratio = get_settings().price_band_max_ratio
 
     best_score = -1.0
     best_cand: CompetitorProduct | None = None
     best_result = None
     for cand, r in zip(pool, results, strict=True):
         if r.verdict.value not in _ACCEPT_VERDICTS:
+            continue
+        if not _in_price_band(cand.price, dk_price, max_ratio):
+            # Cosine + token may agree, but the price says it's a
+            # different product (a part vs the machine, a kit vs a single
+            # instrument, etc.). Drop it.
             continue
         if r.score > best_score:
             best_score = r.score

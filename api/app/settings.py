@@ -16,8 +16,14 @@ class Settings(BaseSettings):
     embed_device: str = "cpu"
 
     accept_threshold: float = 0.75
-    possible_threshold: float = 0.55
+    possible_threshold: float = 0.62
     variant_threshold: float = 0.45
+
+    # Reject a match outright when the competitor price differs from DK by
+    # more than this multiple (or less than 1/multiple). A "compressor
+    # valve" at ₹250 and an "air compressor" at ₹22,512 are not the same
+    # product no matter how cosine-similar their names look.
+    price_band_max_ratio: float = 5.0
 
     score_w_cosine: float = Field(default=0.45)
     score_w_brand: float = Field(default=0.15)

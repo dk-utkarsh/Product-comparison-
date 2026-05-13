@@ -30,5 +30,10 @@ def test_settings_score_weights_default():
 def test_settings_thresholds_default():
     s = Settings(database_url="postgres://x")
     assert s.accept_threshold == 0.75
-    assert s.possible_threshold == 0.55
+    assert s.possible_threshold == 0.62
     assert s.variant_threshold == 0.45
+
+
+def test_settings_price_band_default():
+    s = Settings(database_url="postgres://x")
+    assert s.price_band_max_ratio == 5.0
