@@ -32,9 +32,6 @@ _ACCEPT_VERDICTS = (Verdict.CONFIRMED.value, Verdict.POSSIBLE.value)
 
 class DkRow(BaseModel):
     name: str = Field(min_length=1)
-    sku: str | None = None
-    brand: str | None = None
-    price: float | None = None
 
 
 class CompetitorMatch(BaseModel):
@@ -155,15 +152,16 @@ def _empty_cell(cid: str, cname: str, seen: int) -> CompetitorMatch:
 
 
 async def _compare_one(row: DkRow) -> CompareResult:
-    """Two-phase comparison:
+    """Two-phase comparison driven by the product name alone:
     1. Search dentalkart.com → canonical match → description + sku + packaging.
+       The DK match's price becomes our reference for the Δ diff.
     2. Build progressive search queries from that context.
-    3. For every competitor, try every query in parallel, pool unique
+    3. For every competitor, fire every query in parallel, pool unique
        candidates, run triage, pick the best confirmed/possible match.
     """
     # Phase 1 — Dentalkart self lookup (single query: the raw row name).
     dk_raw = await scrape_competitor("dentalkart", row.name)
-    dk_match = _best_match(row.name, dk_raw, row.price)
+    dk_match = _best_match(row.name, dk_raw, None)
     if dk_match is not None:
         dk_match.competitor_id = "dentalkart"
         dk_match.competitor_name = "Dentalkart"
@@ -179,14 +177,15 @@ async def _compare_one(row: DkRow) -> CompareResult:
         None,
     )
     ctx = ProductContext(
-        brand=row.brand,
         description=dk_canonical.description if dk_canonical else None,
         packaging=dk_canonical.packaging if dk_canonical else None,
-        sku=row.sku or (dk_canonical.sku if dk_canonical else None),
+        sku=dk_canonical.sku if dk_canonical else None,
     )
     queries = extract_smart_queries(canonical_name, ctx)
     if not queries:
         queries = [row.name]
+
+    dk_price = dk_match.matched_price if dk_match else None
 
     # Phase 3 — competitor fanout, multi-query per competitor.
     comp_results = await asyncio.gather(
@@ -197,10 +196,7 @@ async def _compare_one(row: DkRow) -> CompareResult:
     out: list[CompetitorMatch] = []
     for (cid, cname), pooled in zip(COMPETITORS, comp_results, strict=True):
         candidates = pooled if isinstance(pooled, list) else []
-        # Triage against the canonical DK name when available (cleaner signal
-        # than the raw user-supplied row), else the row name.
-        triage_ref = canonical_name
-        best = _best_match(triage_ref, candidates, row.price)
+        best = _best_match(canonical_name, candidates, dk_price)
         if best is None:
             out.append(_empty_cell(cid, cname, len(candidates)))
         else:
@@ -217,12 +213,12 @@ async def compare_single(row: DkRow) -> CompareResult:
 
 
 _NAME_HEADERS = {"product name", "name", "product", "title"}
-_SKU_HEADERS = {"sku", "code", "item code", "product code"}
-_BRAND_HEADERS = {"brand", "manufacturer"}
-_PRICE_HEADERS = {"price", "mrp", "dk price"}
 
 
 def _parse_dk_xlsx(content: bytes) -> list[DkRow]:
+    """Pull just the product-name column out of the xlsx. Everything else
+    (SKU, brand, price) is ignored — we derive what we need from the live
+    dentalkart.com scrape."""
     wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
     ws = wb.active
     if ws is None:
@@ -235,42 +231,30 @@ def _parse_dk_xlsx(content: bytes) -> list[DkRow]:
 
     headers_lc = [str(h).strip().lower() if h is not None else "" for h in header]
 
-    def find(targets: set[str]) -> int | None:
-        for i, h in enumerate(headers_lc):
-            if h in targets:
-                return i
-        return None
-
-    n = find(_NAME_HEADERS)
+    n: int | None = None
+    for i, h in enumerate(headers_lc):
+        if h in _NAME_HEADERS:
+            n = i
+            break
     if n is None:
         if len(headers_lc) == 1:
             n = 0
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"no name column. headers: {headers_lc}",
+                detail=(
+                    f"no product-name column found. Looked for one of "
+                    f"{sorted(_NAME_HEADERS)}; got headers {headers_lc}"
+                ),
             )
-    s, b, p = find(_SKU_HEADERS), find(_BRAND_HEADERS), find(_PRICE_HEADERS)
 
     rows: list[DkRow] = []
     for r in iter_rows:
         if not r or n >= len(r) or r[n] is None:
             continue
         name = str(r[n]).strip()
-        if not name:
-            continue
-        try:
-            price = float(r[p]) if p is not None and p < len(r) and r[p] is not None else None
-        except (TypeError, ValueError):
-            price = None
-        rows.append(
-            DkRow(
-                name=name,
-                sku=str(r[s]).strip() if s is not None and s < len(r) and r[s] else None,
-                brand=str(r[b]).strip() if b is not None and b < len(r) and r[b] else None,
-                price=price,
-            )
-        )
+        if name:
+            rows.append(DkRow(name=name))
     return rows
 
 
