@@ -12,6 +12,7 @@ dependencies = [
   "pgvector>=0.3.6",
   "alembic>=1.13",
   "sqlalchemy>=2.0",
+  "psycopg[binary]>=3.2",
   "sentence-transformers>=3.2",
   "rapidfuzz>=3.10",
   "structlog>=24.4",
