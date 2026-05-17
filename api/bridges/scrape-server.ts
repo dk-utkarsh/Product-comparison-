@@ -11,6 +11,18 @@
  * Response: JSON array of ProductData (raw candidates, no matching).
  */
 import { createServer } from "http";
+import { readFileSync, existsSync } from "node:fs";
+
+// Load .env from repo root into process.env (without overriding already-set vars).
+// Lets us pick up SCRAPER_API_KEY etc. without a dotenv dep.
+const envFile = ".env";
+if (existsSync(envFile)) {
+  for (const line of readFileSync(envFile, "utf-8").split("\n")) {
+    const m = line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2];
+  }
+}
+
 import { searchPinkblue } from "../../lib/scrapers/pinkblue";
 import { searchMedikabazar } from "../../lib/scrapers/medikabazar";
 import { searchOralkart } from "../../lib/scrapers/oralkart";

@@ -46,6 +46,24 @@ function randomItem<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+// Hosts whose requests should go through ScraperAPI when SCRAPER_API_KEY is set.
+// pinkblue.in blocks datacenter IPs (DigitalOcean etc.) at the firewall.
+const PROXY_HOSTS = new Set(["pinkblue.in", "www.pinkblue.in"]);
+
+function maybeProxy(url: string): string {
+  const key = process.env.SCRAPER_API_KEY;
+  if (!key) return url;
+  try {
+    const host = new URL(url).hostname;
+    if (PROXY_HOSTS.has(host)) {
+      return `https://api.scraperapi.com/?api_key=${key}&url=${encodeURIComponent(url)}&keep_headers=true`;
+    }
+  } catch {
+    // fall through
+  }
+  return url;
+}
+
 export interface SmartFetchOptions {
   timeout?: number;
   retries?: number;
@@ -83,7 +101,7 @@ export async function smartFetch(
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const response = await fetch(url, {
+      const response = await fetch(maybeProxy(url), {
         headers,
         redirect: "follow",
         signal: AbortSignal.timeout(timeout),
