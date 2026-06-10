@@ -2,6 +2,7 @@ import { smartFetch } from "../http";
 import * as cheerio from "cheerio";
 import { ProductData } from "../types";
 import { detectPackSize, calculateUnitPrice } from "../pack-detector";
+import { parsePdpHtml } from "../pdp";
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -108,6 +109,63 @@ export async function searchDentmark(
     return products;
   } catch {
     return [];
+  }
+}
+
+/**
+ * Fetch a single Dentmark PDP (Laravel, server-rendered).
+ * JSON-LD/og-meta first, then the same price selectors the search
+ * cards use (span.prod-price / span.cut-price, "INR 188" format).
+ */
+export async function fetchDentmarkProduct(url: string): Promise<ProductData | null> {
+  try {
+    const response = await smartFetch(url, { timeout: 15000 });
+    if (!response.ok) return null;
+    const html = await response.text();
+    const pdp = parsePdpHtml(html);
+    const $ = cheerio.load(html);
+
+    const name = pdp?.name || $("h1").first().text().trim();
+    if (!name) return null;
+
+    const priceText = $("span.prod-price").first().text().trim();
+    const cutText = $("span.cut-price").first().text().trim();
+    const parseInr = (t: string) => parseFloat(t.replace(/[^0-9.]/g, "")) || 0;
+    const price = pdp?.price || parseInr(priceText);
+    const mrp = parseInr(cutText) || pdp?.mrp || price;
+    if (price <= 0) return null;
+
+    // JSON-LD description first. Dentmark's JSON-LD description is empty and
+    // its og:description is the generic site tagline ("Buy Dental Products
+    // Online in India - Dentmark"), so skip that in favour of the PDP's
+    // Description accordion panel (#collapseOne inside .detail-tabs).
+    const siteDesc = $("#collapseOne, .detail-tabs .card-body")
+      .first()
+      .text()
+      .replace(/\s+/g, " ")
+      .trim();
+    const metaDesc = pdp?.description || "";
+    const isGenericMeta = /^buy dental products online/i.test(metaDesc);
+    const description = (!isGenericMeta && metaDesc) || siteDesc || metaDesc;
+
+    const packSize = detectPackSize(name, description, url);
+    return {
+      name,
+      url,
+      image: pdp?.image || $("img.prod-img-style, .product-image img").first().attr("src") || "",
+      price,
+      mrp,
+      discount: mrp > price && mrp > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0,
+      packaging: pdp?.brand || "",
+      inStock: pdp?.inStock ?? !/sold\s*out/i.test(html),
+      description,
+      source: "dentmark",
+      packSize,
+      unitPrice: calculateUnitPrice(price, packSize),
+      sku: pdp?.sku || undefined,
+    };
+  } catch {
+    return null;
   }
 }
 
