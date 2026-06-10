@@ -19,11 +19,20 @@ import openpyxl
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
+from app import pipeline, registry
+from app.db import Database, get_db
+from app.matching.llm_judge import JudgeBudget
 from app.matching.query_builder import ProductContext, extract_smart_queries
 from app.matching.score import Verdict
+from app.matching.structured import ProductRecord
 from app.matching.tokens import distinguishing_tokens
 from app.matching.triage import triage_batch
-from app.scrapers.bridge import COMPETITORS, CompetitorProduct, scrape_competitor
+from app.scrapers.bridge import (
+    COMPETITORS,
+    CompetitorProduct,
+    fetch_product,
+    scrape_competitor,
+)
 from app.settings import get_settings
 
 router = APIRouter(prefix="/compare", tags=["compare"])
@@ -49,6 +58,8 @@ class CompetitorMatch(BaseModel):
     cosine: float | None
     reasons: list[str] = []
     price_diff_vs_dk: float | None = None
+    matched_by: str | None = None
+    pack_note: str | None = None
 
 
 class CompareResult(BaseModel):
@@ -154,27 +165,6 @@ def _best_match(
     )
 
 
-async def _scrape_all_queries(
-    competitor_id: str, queries: list[str]
-) -> list[CompetitorProduct]:
-    """Fire every query for one competitor in parallel, pool unique candidates."""
-    raws = await asyncio.gather(
-        *(scrape_competitor(competitor_id, q) for q in queries),
-        return_exceptions=True,
-    )
-    seen_urls: set[str] = set()
-    pooled: list[CompetitorProduct] = []
-    for r in raws:
-        if not isinstance(r, list):
-            continue
-        for cand in r:
-            key = cand.url or cand.name
-            if key and key not in seen_urls:
-                seen_urls.add(key)
-                pooled.append(cand)
-    return pooled
-
-
 def _empty_cell(cid: str, cname: str, seen: int) -> CompetitorMatch:
     return CompetitorMatch(
         competitor_id=cid,
@@ -193,65 +183,102 @@ def _empty_cell(cid: str, cname: str, seen: int) -> CompetitorMatch:
     )
 
 
-async def _compare_one(row: DkRow) -> CompareResult:
-    """Two-phase comparison driven by the product name alone:
-    1. Search dentalkart.com → canonical match → description + sku + packaging.
-       The DK match's price becomes our reference for the Δ diff.
-    2. Build progressive search queries from that context.
-    3. For every competitor, fire every query in parallel, pool unique
-       candidates, run triage, pick the best confirmed/possible match.
-    """
-    # Phase 1 — Dentalkart self lookup (single query: the raw row name).
+def _cell_to_match(cid: str, cname: str, cell: pipeline.Cell,
+                   dk_price: float | None) -> CompetitorMatch:
+    c = cell.candidate
+    if c is None or cell.verdict is None:
+        return _empty_cell(cid, cname, cell.candidates_seen)
+    diff = round(dk_price - c.price, 2) if dk_price and dk_price > 0 else None
+    return CompetitorMatch(
+        competitor_id=cid, competitor_name=cname,
+        candidates_seen=cell.candidates_seen,
+        matched_name=c.name, matched_url=c.url, matched_price=c.price,
+        matched_image=c.image, in_stock=c.in_stock,
+        verdict=cell.verdict, score=cell.confidence, cosine=None,
+        reasons=cell.reasons, price_diff_vs_dk=diff,
+        matched_by=cell.matched_by, pack_note=cell.pack_note,
+    )
+
+
+async def _resolve_dk(row: DkRow) -> tuple[CompetitorMatch | None, ProductRecord | None]:
+    """Search dentalkart.com, pick the best self-match, enrich via PDP."""
     dk_raw = await scrape_competitor("dentalkart", row.name)
     dk_match = _best_match(row.name, dk_raw, None)
-    if dk_match is not None:
-        dk_match.competitor_id = "dentalkart"
-        dk_match.competitor_name = "Dentalkart"
+    if dk_match is None:
+        return None, None
+    dk_match.competitor_id = "dentalkart"
+    dk_match.competitor_name = "Dentalkart"
+    pdp = await fetch_product("dentalkart", dk_match.matched_url or "")
+    src = pdp or next(
+        (c for c in dk_raw if c.url == dk_match.matched_url), None)
+    if src is None:
+        return dk_match, None
+    return dk_match, pipeline.record_from(src)
 
-    # Phase 2 — build the query pool using DK's richer context if we got it.
-    canonical_name = (
-        dk_match.matched_name
-        if dk_match and dk_match.matched_name
-        else row.name
-    )
-    dk_canonical = next(
-        (c for c in dk_raw if dk_match and c.url == dk_match.matched_url),
-        None,
-    )
+
+async def _compare_one(
+    row: DkRow, db: Database | None, budget: JudgeBudget
+) -> CompareResult:
+    dk_match, dk_record = await _resolve_dk(row)
+    if dk_match is None or dk_record is None:
+        # Not on dentalkart.com — report empty cells, don't guess.
+        return CompareResult(
+            dentalkart=row, dentalkart_match=None,
+            competitors=[_empty_cell(cid, cname, 0) for cid, cname in COMPETITORS],
+        )
+
+    product_id: int | None = None
+    if db is not None:
+        try:
+            product_id = await registry.upsert_product(db, dk_record)
+        except Exception:  # registry is best-effort
+            product_id = None
+
     ctx = ProductContext(
-        description=dk_canonical.description if dk_canonical else None,
-        packaging=dk_canonical.packaging if dk_canonical else None,
-        sku=dk_canonical.sku if dk_canonical else None,
+        description=dk_record.description or None,
+        packaging=dk_record.packaging or None,
+        sku=dk_record.sku,
     )
-    queries = extract_smart_queries(canonical_name, ctx)
-    if not queries:
-        queries = [row.name]
+    queries = extract_smart_queries(dk_record.name, ctx) or [row.name]
+    dk_price = dk_match.matched_price
 
-    dk_price = dk_match.matched_price if dk_match else None
+    async def one_competitor(cid: str, cname: str) -> CompetitorMatch:
+        # Phase 2: registry hit -> cheap refresh.
+        if db is not None and product_id is not None:
+            try:
+                links = await registry.get_active_links(db, product_id, cid)
+            except Exception:  # registry is best-effort
+                links = []
+            if links:
+                cell = await pipeline.refresh(cid, links[0])
+                if cell is not None:
+                    return _cell_to_match(cid, cname, cell, dk_price)
+        # Phase 1: full discovery.
+        cell = await pipeline.discover(
+            cid, queries, dk_record,
+            budget=budget, db=db, product_id=product_id,
+        )
+        return _cell_to_match(cid, cname, cell, dk_price)
 
-    # Phase 3 — competitor fanout, multi-query per competitor.
-    comp_results = await asyncio.gather(
-        *(_scrape_all_queries(cid, queries) for cid, _ in COMPETITORS),
-        return_exceptions=True,
-    )
-
-    out: list[CompetitorMatch] = []
-    for (cid, cname), pooled in zip(COMPETITORS, comp_results, strict=True):
-        candidates = pooled if isinstance(pooled, list) else []
-        best = _best_match(canonical_name, candidates, dk_price)
-        if best is None:
-            out.append(_empty_cell(cid, cname, len(candidates)))
-        else:
-            best.competitor_id = cid
-            best.competitor_name = cname
-            out.append(best)
-
+    out = list(await asyncio.gather(
+        *(one_competitor(cid, cname) for cid, cname in COMPETITORS)
+    ))
     return CompareResult(dentalkart=row, dentalkart_match=dk_match, competitors=out)
 
 
 @router.post("/single", response_model=CompareResult)
 async def compare_single(row: DkRow) -> CompareResult:
-    return await _compare_one(row)
+    db: Database | None
+    try:
+        db = await get_db()
+    except Exception:  # run stateless without a DB
+        db = None
+    try:
+        budget = JudgeBudget(get_settings().llm_judge_budget_per_run)
+        return await _compare_one(row, db, budget)
+    finally:
+        if db is not None:
+            await db.close()
 
 
 _NAME_HEADERS = {"product name", "name", "product", "title"}
@@ -316,11 +343,21 @@ async def compare_batch(
     if not rows:
         raise HTTPException(status_code=400, detail="no usable rows in xlsx")
 
+    db: Database | None
+    try:
+        db = await get_db()
+    except Exception:  # run stateless without a DB
+        db = None
+    budget = JudgeBudget(get_settings().llm_judge_budget_per_run)
     sem = asyncio.Semaphore(max(1, concurrency))
 
     async def gated(r: DkRow) -> CompareResult:
         async with sem:
-            return await _compare_one(r)
+            return await _compare_one(r, db, budget)
 
-    results = await asyncio.gather(*(gated(r) for r in rows))
+    try:
+        results = await asyncio.gather(*(gated(r) for r in rows))
+    finally:
+        if db is not None:
+            await db.close()
     return CompareBatchResponse(total=len(results), results=results)
