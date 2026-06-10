@@ -128,8 +128,10 @@ export async function fetchDentmarkProduct(url: string): Promise<ProductData | n
     const name = pdp?.name || $("h1").first().text().trim();
     if (!name) return null;
 
-    const priceText = $("span.prod-price").first().text().trim();
-    const cutText = $("span.cut-price").first().text().trim();
+    const priceText = $("h4.prod-rate").first().text().trim()
+      || $("span.prod-price").first().text().trim();
+    const cutText = $("span.cut-rate").first().text().trim()
+      || $("span.cut-price").first().text().trim();
     const parseInr = (t: string) => parseFloat(t.replace(/[^0-9.]/g, "")) || 0;
     const price = pdp?.price || parseInr(priceText);
     const mrp = parseInr(cutText) || pdp?.mrp || price;
