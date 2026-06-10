@@ -120,7 +120,7 @@ def triage_batch(search: str, candidates: list[str]) -> list[TriageResult]:
     # One encode call for the search + every survivor candidate.
     embedder = get_embedder()
     if pending_norms:
-        vecs = embedder.encode_many([s_norm] + pending_norms)
+        vecs = embedder.encode_many([s_norm, *pending_norms])
         s_vec = vecs[0]
         cand_vecs = vecs[1:]
         cosines: dict[int, float] = {

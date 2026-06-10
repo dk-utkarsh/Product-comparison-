@@ -42,6 +42,7 @@ select = ["E", "F", "W", "I", "B", "UP", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "app/matching/normalize.py" = ["RUF001"]  # intentional em/en-dash chars in regex
+"app/routes/*" = ["B008"]  # FastAPI dependency-injection defaults (File(...)) are idiomatic
 
 [[tool.mypy.overrides]]
 module = ["asyncpg.*", "sentence_transformers.*"]

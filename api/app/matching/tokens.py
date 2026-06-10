@@ -29,7 +29,7 @@ _STOPWORDS: frozenset[str] = frozenset({
     "free", "delivery", "shipping", "india", "new", "original", "genuine",
     "type", "shape", "style", "model", "series", "version",
     "ss", "stainless", "steel", "pack", "set", "box", "kit", "kits",
-    "of", "premium", "professional", "standard", "regular", "extra",
+    "premium", "professional", "standard", "regular", "extra",
     "small", "medium", "large", "xl", "xxl", "light", "heavy",
     "red", "blue", "green", "yellow", "white", "black", "pink", "clear",
 })

@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-from typing import Any
 
 import openpyxl
 from fastapi import APIRouter, File, HTTPException, UploadFile
