@@ -1,6 +1,8 @@
 import { smartFetch } from "../http";
 import { ProductData } from "../types";
 import { detectPackSize, calculateUnitPrice } from "../pack-detector";
+import { parsePdpHtml } from "../pdp";
+import * as cheerio from "cheerio";
 
 const SEARCH_API_URL =
   "https://apis.dentalkart.com/search/api/v1/query/results";
@@ -164,4 +166,58 @@ function mapProduct(p: DentalkartProduct): ProductData {
     unitPrice,
     sku: p.sku || undefined,
   };
+}
+
+/**
+ * Fetch a single Dentalkart PDP (Next.js, but product pages are
+ * server-rendered for SEO and carry a schema.org Product JSON-LD block).
+ * Returns null when the page can't be parsed — caller falls back to the
+ * (thinner) search-API data for that product.
+ */
+export async function fetchDentalkartProduct(url: string): Promise<ProductData | null> {
+  try {
+    const response = await smartFetch(url, { timeout: 15000 });
+    if (!response.ok) return null;
+    const html = await response.text();
+    const pdp = parsePdpHtml(html);
+    if (!pdp) return null;
+
+    const $ = cheerio.load(html);
+    // Long description / key-features live in the description tab; the
+    // JSON-LD description is often the short one. Concatenate both.
+    const longDesc = $(
+      '[class*="description"], [id*="description"], [class*="product-detail"]'
+    )
+      .first()
+      .text()
+      .replace(/\s+/g, " ")
+      .trim();
+    const description = [pdp.description, longDesc]
+      .filter(Boolean)
+      .filter((d, i, a) => a.indexOf(d) === i)
+      .join(". ")
+      .slice(0, 4000);
+
+    const packSize = detectPackSize(pdp.name, description, url);
+    return {
+      name: pdp.name,
+      url,
+      image: pdp.image,
+      price: pdp.price,
+      mrp: pdp.mrp,
+      discount:
+        pdp.mrp > pdp.price && pdp.mrp > 0
+          ? Math.round(((pdp.mrp - pdp.price) / pdp.mrp) * 100)
+          : 0,
+      packaging: pdp.brand || "",
+      inStock: pdp.inStock ?? true,
+      description,
+      source: "dentalkart",
+      packSize,
+      unitPrice: calculateUnitPrice(pdp.price, packSize),
+      sku: pdp.sku || undefined,
+    };
+  } catch {
+    return null;
+  }
 }
