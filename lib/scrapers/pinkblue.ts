@@ -2,6 +2,7 @@ import { smartFetch } from "../http";
 import * as cheerio from "cheerio";
 import { ProductData } from "../types";
 import { detectPackSize, calculateUnitPrice } from "../pack-detector";
+import { parsePdpHtml } from "../pdp";
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -149,4 +150,72 @@ function parsePrice(text: string): number {
   if (!match) return 0;
   const num = parseFloat(match[1]);
   return isNaN(num) ? 0 : num;
+}
+
+/**
+ * Fetch a single Pinkblue PDP. Magento 2 server-rendered page.
+ * JSON-LD Product block first; Magento selectors fill in description,
+ * SKU and specs table when JSON-LD is thin.
+ * Goes through ScraperAPI automatically when SCRAPER_API_KEY is set
+ * (smartFetch handles the proxying).
+ */
+export async function fetchPinkblueProduct(url: string): Promise<ProductData | null> {
+  try {
+    const response = await smartFetch(url, { timeout: 15000 });
+    if (!response.ok) return null;
+    const html = await response.text();
+    const pdp = parsePdpHtml(html);
+    const $ = cheerio.load(html);
+
+    const name =
+      pdp?.name || $("h1.page-title span").first().text().trim();
+    if (!name) return null;
+
+    // Magento long description beats the JSON-LD one when present.
+    const magentoDesc = $(".product.attribute.description .value")
+      .text()
+      .replace(/\s+/g, " ")
+      .trim();
+    const description = magentoDesc || pdp?.description || "";
+
+    // Specs table → packaging string ("Shade: A2 | Pack: 50 pcs ...").
+    const specs: string[] = [];
+    $("#product-attribute-specs-table tr").each((_, tr) => {
+      const label = $(tr).find("th").text().trim();
+      const value = $(tr).find("td").text().trim();
+      if (label && value) specs.push(`${label}: ${value}`);
+    });
+    const packaging = specs.join(" | ");
+
+    const sku =
+      pdp?.sku || $(".product.attribute.sku .value").first().text().trim();
+
+    let price = pdp?.price ?? 0;
+    if (!price) {
+      const amt = $(".product-info-price [data-price-amount]").first().attr("data-price-amount");
+      price = parseFloat(amt || "0") || 0;
+    }
+    const mrpText = $(".product-info-price .old-price .price").first().text().trim();
+    const mrp = parsePrice(mrpText) || pdp?.mrp || price;
+    if (price <= 0) return null;
+
+    const packSize = detectPackSize(name, `${description} ${packaging}`, url);
+    return {
+      name,
+      url,
+      image: pdp?.image || $("img.product-image-photo").first().attr("src") || "",
+      price,
+      mrp,
+      discount: mrp > price && mrp > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0,
+      packaging,
+      inStock: pdp?.inStock ?? !$(".stock.unavailable").length,
+      description,
+      source: "pinkblue",
+      packSize,
+      unitPrice: calculateUnitPrice(price, packSize),
+      sku: sku || undefined,
+    };
+  } catch {
+    return null;
+  }
 }
