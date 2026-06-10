@@ -1,5 +1,6 @@
 from app.matching.attributes import (
     extract_attributes,
+    extract_attributes_rich,
     extract_brand,
 )
 
@@ -43,3 +44,45 @@ def test_extract_attributes_taper():
 def test_extract_attributes_slot():
     a = extract_attributes("MBT Bracket .022 Slot")
     assert a.slot == "022"
+
+
+def test_new_fields_default_none():
+    a = extract_attributes("3M Filtek Z350")
+    assert a.material is None and a.dimension is None and a.wire_form is None
+
+
+def test_material_from_name():
+    a = extract_attributes("OrthoMetric NiTi Thermal Archwire")
+    assert a.material == "niti"
+
+
+def test_dimension_pair_from_name():
+    a = extract_attributes("Archwire Rectangular .017 x .025 Lower")
+    assert a.dimension == "017x025"
+    assert a.wire_form == "lower"
+
+
+def test_rich_fills_shade_from_description_when_unambiguous():
+    a = extract_attributes_rich(
+        "GC Fuji IX GP Capsules",
+        description="Posterior glass ionomer. Shade A2. Box of 50 capsules.",
+    )
+    assert a.shade == "a2"
+    assert a.pack_count == 50
+
+
+def test_rich_skips_ambiguous_description_values():
+    # description lists every available shade -> must NOT pick one
+    a = extract_attributes_rich(
+        "GC Fuji IX GP Capsules",
+        description="Available in shades A1, A2, A3 and B2.",
+    )
+    assert a.shade is None
+
+
+def test_rich_never_overrides_name_attrs():
+    a = extract_attributes_rich(
+        "Composite A3 syringe",
+        description="Also pairs well with shade A2 etch kits.",
+    )
+    assert a.shade == "a3"

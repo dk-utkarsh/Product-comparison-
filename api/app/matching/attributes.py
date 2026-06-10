@@ -20,6 +20,9 @@ class Attributes:
     slot: str | None = None
     pack_count: int | None = None
     viscosity: str | None = None
+    material: str | None = None
+    dimension: str | None = None
+    wire_form: str | None = None
 
 
 _MODEL_RE = re.compile(r"\b([a-z]{1,5}-?\d{2,5}[a-z]?)\b", re.IGNORECASE)
@@ -33,6 +36,18 @@ _PACK_RE = re.compile(
     re.IGNORECASE,
 )
 _VISCOSITY_VARIANTS = ("light body", "heavy body", "putty", "wash", "monophase")
+# (?<!\d) instead of \b: a leading bare dot (".017") has no word boundary
+# after a space, so \b would never match the dotted form.
+# The multiplication sign is a deliberate alternative separator.
+_DIM_PAIR_RE = re.compile(r"(?<!\d)0?\.(\d{3})\s*[x×*]\s*0?\.(\d{3})\b")  # noqa: RUF001
+_WIRE_FORM_RE = re.compile(r"\b(upper|lower)\b", re.IGNORECASE)
+# Longest-first so "nickel titanium" wins over "titanium".
+_MATERIALS: list[tuple[str, str]] = [
+    ("nickel titanium", "niti"), ("niti", "niti"),
+    ("stainless steel", "stainless steel"),
+    ("tungsten carbide", "tungsten carbide"),
+    ("titanium", "titanium"), ("ceramic", "ceramic"), ("zirconia", "zirconia"),
+]
 
 
 _BRAND_PREFIX_RE = re.compile(r"^[a-z0-9]+", re.IGNORECASE)
@@ -79,6 +94,18 @@ def extract_attributes(name: str) -> Attributes:
             viscosity = v
             break
 
+    material: str | None = None
+    for needle, canon in _MATERIALS:
+        if needle in lower:
+            material = canon
+            break
+
+    dim = _DIM_PAIR_RE.search(lower)
+    dimension = f"{dim.group(1)}x{dim.group(2)}" if dim else None
+
+    wf = _WIRE_FORM_RE.search(lower)
+    wire_form = wf.group(1).lower() if wf else None
+
     return Attributes(
         brand=extract_brand(name),
         model_codes=model_codes,
@@ -89,4 +116,68 @@ def extract_attributes(name: str) -> Attributes:
         slot=slot_match,
         pack_count=pack_count,
         viscosity=viscosity,
+        material=material,
+        dimension=dimension,
+        wire_form=wire_form,
     )
+
+
+# Variant attributes that may be recovered from description/packaging when
+# the name lacks them. Filled ONLY when the extra text yields exactly one
+# distinct value — descriptions often enumerate every available variant
+# ("shades A1, A2, A3"), and guessing one of those would corrupt matching.
+_RICH_FIELDS: tuple[str, ...] = (
+    "iso_size", "shade", "concentration", "viscosity",
+    "material", "dimension", "wire_form", "pack_count",
+)
+
+_FINDALL_RES: dict[str, re.Pattern[str]] = {
+    "shade": _SHADE_RE,
+    "concentration": _CONC_RE,
+    "iso_size": _ISO_RE,
+}
+
+
+def _unambiguous(field: str, text: str) -> str | None:
+    """Return the single distinct value of `field` in `text`, else None."""
+    pat = _FINDALL_RES.get(field)
+    if pat is not None:
+        values = {m.lower() for m in pat.findall(text) if m}
+        return values.pop() if len(values) == 1 else None
+    return None
+
+
+def extract_attributes_rich(
+    name: str, description: str = "", packaging: str = ""
+) -> Attributes:
+    """Attributes from the name, with gaps filled from description+packaging.
+
+    Name always wins. Extra text only fills a missing field when it contains
+    exactly one distinct value for it (see _RICH_FIELDS note).
+    """
+    attrs = extract_attributes(name)
+    extra = f"{description} {packaging}".strip()
+    if not extra:
+        return attrs
+    extra_attrs = extract_attributes(extra)
+    extra_lower = extra.lower()
+
+    for field_name in _RICH_FIELDS:
+        if getattr(attrs, field_name) is not None:
+            continue
+        unamb = _unambiguous(field_name, extra)
+        if unamb is not None:
+            if field_name == "iso_size":
+                setattr(attrs, field_name, int(unamb))
+            elif field_name == "concentration":
+                setattr(attrs, field_name, float(unamb))
+            else:
+                setattr(attrs, field_name, unamb)
+            continue
+        if field_name in ("material", "dimension", "wire_form", "viscosity", "pack_count"):
+            # These extractors already return one value; ambiguity is rare
+            # ("upper" AND "lower" in one description is the exception).
+            if field_name == "wire_form" and len(set(_WIRE_FORM_RE.findall(extra_lower))) > 1:
+                continue
+            setattr(attrs, field_name, getattr(extra_attrs, field_name))
+    return attrs
