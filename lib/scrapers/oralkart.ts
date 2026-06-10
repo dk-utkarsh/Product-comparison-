@@ -162,3 +162,87 @@ function parseShopifyPrice(text?: string): number {
   const num = parseFloat(match[1]);
   return isNaN(num) ? 0 : num;
 }
+
+interface ShopifyVariantJson {
+  title?: string;
+  sku?: string;
+  price?: number; // paise (Shopify .js returns minor units)
+  compare_at_price?: number | null;
+  available?: boolean;
+}
+
+interface ShopifyProductJson {
+  title?: string;
+  body_html?: string;
+  description?: string;
+  vendor?: string;
+  price?: number;
+  compare_at_price?: number | null;
+  available?: boolean;
+  featured_image?: string;
+  variants?: ShopifyVariantJson[];
+}
+
+function stripTags(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Fetch a single Oralkart PDP via Shopify's product .js endpoint.
+ * https://www.oralkart.com/products/{handle}.js returns full product JSON
+ * with body_html (description) and per-variant prices in paise.
+ */
+export async function fetchOralkartProduct(url: string): Promise<ProductData | null> {
+  try {
+    const clean = url.split("?")[0].replace(/\/$/, "");
+    const response = await smartFetch(`${clean}.js`, { accept: "application/json" });
+    if (!response.ok) return null;
+    const p = (await response.json()) as ShopifyProductJson;
+    const name = (p.title || "").trim();
+    if (!name) return null;
+
+    const description = stripTags(p.description || p.body_html || "");
+    const price = (p.price ?? 0) / 100;
+    const mrp = (p.compare_at_price ?? 0) / 100 || price;
+    const packSize = detectPackSize(name, description, url);
+
+    const variants = (p.variants || []).map((v) => {
+      const vPrice = (v.price ?? 0) / 100;
+      const vPack = detectPackSize(v.title || name, "", "");
+      return {
+        name: v.title || "",
+        sku: v.sku || "",
+        price: vPrice,
+        mrp: (v.compare_at_price ?? 0) / 100 || vPrice,
+        packSize: vPack,
+        unitPrice: calculateUnitPrice(vPrice, vPack),
+      };
+    });
+
+    return {
+      name,
+      url: clean,
+      image: p.featured_image
+        ? p.featured_image.replace(/^\/\//, "https://")
+        : "",
+      price,
+      mrp,
+      discount: mrp > price && mrp > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0,
+      packaging: p.vendor || "",
+      inStock: p.available !== false,
+      description,
+      source: "oralkart",
+      packSize,
+      unitPrice: calculateUnitPrice(price, packSize),
+      sku: p.variants?.[0]?.sku || undefined,
+      variants,
+    };
+  } catch {
+    return null;
+  }
+}
