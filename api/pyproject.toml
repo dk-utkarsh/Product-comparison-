@@ -20,6 +20,7 @@ dependencies = [
   "uvicorn[standard]>=0.32",
   "openpyxl>=3.1.5",
   "pandas>=3.0.3",
+  "anthropic>=0.92",
 ]
 
 [dependency-groups]

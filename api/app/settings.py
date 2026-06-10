@@ -25,6 +25,20 @@ class Settings(BaseSettings):
     # product no matter how cosine-similar their names look.
     price_band_max_ratio: float = 5.0
 
+    # ── Exact-match pipeline ────────────────────────────────
+    # LLM borderline judge (Approach C). Empty key disables the judge;
+    # the pipeline then runs as pure rules (Approach A).
+    anthropic_api_key: str = ""
+    llm_judge_model: str = "claude-haiku-4-5"
+    llm_judge_budget_per_run: int = 30
+
+    # How many top triaged candidates per competitor get a PDP fetch.
+    pdp_top_k: int = 3
+
+    # Structured-match CONFIRMED gates: product line must agree strongly.
+    confirm_cosine: float = 0.80
+    confirm_fuzz: float = 0.85
+
     score_w_cosine: float = Field(default=0.45)
     score_w_brand: float = Field(default=0.15)
     score_w_pack: float = Field(default=0.05)

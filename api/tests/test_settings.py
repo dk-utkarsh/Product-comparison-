@@ -37,3 +37,14 @@ def test_settings_thresholds_default():
 def test_settings_price_band_default():
     s = Settings(database_url="postgres://x")
     assert s.price_band_max_ratio == 5.0
+
+
+def test_judge_and_pdp_defaults():
+    from app.settings import get_settings
+    s = get_settings()
+    assert s.llm_judge_model == "claude-haiku-4-5"
+    assert s.llm_judge_budget_per_run == 30
+    assert s.pdp_top_k == 3
+    assert s.confirm_cosine == 0.80
+    assert s.confirm_fuzz == 0.85
+    assert isinstance(s.anthropic_api_key, str)
