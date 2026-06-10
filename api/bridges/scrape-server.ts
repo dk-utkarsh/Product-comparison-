@@ -23,16 +23,16 @@ if (existsSync(envFile)) {
   }
 }
 
-import { searchPinkblue } from "../../lib/scrapers/pinkblue";
+import { searchPinkblue, fetchPinkblueProduct } from "../../lib/scrapers/pinkblue";
 import { searchMedikabazar } from "../../lib/scrapers/medikabazar";
-import { searchOralkart } from "../../lib/scrapers/oralkart";
-import { searchDentmark } from "../../lib/scrapers/dentmark";
+import { searchOralkart, fetchOralkartProduct } from "../../lib/scrapers/oralkart";
+import { searchDentmark, fetchDentmarkProduct } from "../../lib/scrapers/dentmark";
 import { searchMetroOrthodontics } from "../../lib/scrapers/metroorthodontics";
 import { searchShop4Smile } from "../../lib/scrapers/shop4smile";
 import { searchSurgicalmart } from "../../lib/scrapers/surgicalmart";
 import { searchSmileStream } from "../../lib/scrapers/smilestream";
 import { searchDentaid } from "../../lib/scrapers/dentaid";
-import { searchDentalkart } from "../../lib/scrapers/dentalkart";
+import { searchDentalkart, fetchDentalkartProduct } from "../../lib/scrapers/dentalkart";
 import type { ProductData } from "../../lib/types";
 
 const scrapers: Record<string, (q: string) => Promise<ProductData[]>> = {
@@ -48,6 +48,13 @@ const scrapers: Record<string, (q: string) => Promise<ProductData[]>> = {
   dentalkart: searchDentalkart,
 };
 
+const productFetchers: Record<string, (url: string) => Promise<ProductData | null>> = {
+  pinkblue: fetchPinkblueProduct,
+  oralkart: fetchOralkartProduct,
+  dentmark: fetchDentmarkProduct,
+  dentalkart: fetchDentalkartProduct,
+};
+
 const PORT = Number(process.env.SCRAPE_SERVER_PORT || 3100);
 
 const server = createServer(async (req, res) => {
@@ -58,6 +65,38 @@ const server = createServer(async (req, res) => {
     if (path === "health") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ status: "ok", scrapers: Object.keys(scrapers) }));
+      return;
+    }
+
+    if (path === "product") {
+      const scraper = url.searchParams.get("scraper")?.trim() || "";
+      const target = url.searchParams.get("url")?.trim() || "";
+      const fetcher = productFetchers[scraper];
+      if (!fetcher) {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: `no product fetcher for: ${scraper}` }));
+        return;
+      }
+      if (!target) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "missing query param ?url=" }));
+        return;
+      }
+      const t0 = Date.now();
+      try {
+        const product = await fetcher(target);
+        console.log(`[product/${scraper}] ${target} → ${product ? "ok" : "null"} in ${Date.now() - t0}ms`);
+        if (!product) {
+          res.writeHead(404, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "could not parse PDP" }));
+          return;
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(product));
+      } catch (err) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: (err as Error).message }));
+      }
       return;
     }
 

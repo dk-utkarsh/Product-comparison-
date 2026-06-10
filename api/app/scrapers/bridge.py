@@ -12,6 +12,7 @@ Start the sidecar yourself with:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -54,7 +55,7 @@ class CompetitorProduct:
     sku: str | None = None
 
     @classmethod
-    def from_dict(cls, d: dict) -> CompetitorProduct:
+    def from_dict(cls, d: dict[str, Any]) -> CompetitorProduct:
         return cls(
             name=str(d.get("name", "")),
             url=str(d.get("url", "")),
@@ -108,3 +109,30 @@ COMPETITORS: list[tuple[str, str]] = [
     ("oralkart", "Oralkart"),
     ("dentmark", "Dentmark"),
 ]
+
+_PRODUCT_TIMEOUT_S = 25.0
+
+
+async def fetch_product(scraper_id: str, url: str) -> CompetitorProduct | None:
+    """Fetch one PDP through the sidecar. Returns None on any failure —
+    callers fall back to search-result (thin) data."""
+    if not url:
+        return None
+    client = _get_client()
+    try:
+        r = await client.get(
+            "/product",
+            params={"scraper": scraper_id, "url": url},
+            timeout=_PRODUCT_TIMEOUT_S,
+        )
+    except (httpx.RequestError, httpx.TimeoutException):
+        return None
+    if r.status_code != 200:
+        return None
+    try:
+        data = r.json()
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not data.get("name"):
+        return None
+    return CompetitorProduct.from_dict(data)
