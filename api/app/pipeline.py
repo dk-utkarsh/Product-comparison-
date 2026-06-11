@@ -152,9 +152,20 @@ async def discover(
         else:  # BORDERLINE
             jv = await judge_pair(dk_record, rec, budget)
             if jv is None:
-                # judge off/exhausted/down -> unresolved
-                verdict, matched_by, confidence = "possible", "rules", tri.score
-                reasons.append("needs review (judge unavailable)")
+                # judge off/exhausted/down -> unresolved, unless the price
+                # band already says it's a different product (valve vs the
+                # whole machine). A judge that DID run overrides the band.
+                ratio = sm.features.unit_price_ratio
+                max_ratio = get_settings().price_band_max_ratio
+                out_of_band = ratio is not None and not (
+                    (1.0 / max_ratio) <= ratio <= max_ratio
+                )
+                if out_of_band:
+                    verdict, matched_by = "rejected", "rules"
+                    reasons.append("outside price band (judge unavailable)")
+                else:
+                    verdict, matched_by, confidence = "possible", "rules", tri.score
+                    reasons.append("needs review (judge unavailable)")
             else:
                 mapped = _judge_to_cell_verdict(jv)
                 verdict = mapped or "rejected"
