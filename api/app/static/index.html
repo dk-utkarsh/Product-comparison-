@@ -865,7 +865,14 @@ function fmtDiff(d) {
 }
 function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null) {
   if (!c || c.matched_price == null) {
-    return `<td><div class="empty-cell">no match<small>${c?.candidates_seen ?? 0} candidates scanned</small></div></td>`;
+    const gId = Math.random().toString(36).slice(2);
+    const noMatchBtn = !isDk && c ? `
+      <div class="fb-row" id="fb-${gId}" data-payload='${enc(JSON.stringify({
+        search_term: searchTerm, competitor_id: c.competitor_id }))}'>
+        <button class="fb-btn" title="Golden: no match exists here"
+          onclick="sendGolden('${gId}', 'no_match')">∅</button>
+      </div>` : "";
+    return `<td><div class="empty-cell">no match<small>${c?.candidates_seen ?? 0} candidates scanned</small></div>${noMatchBtn}</td>`;
   }
   const img = c.matched_image
     ? `<img class="cell-thumb" src="${enc(c.matched_image)}" alt="" loading="lazy" />`
@@ -901,6 +908,8 @@ function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null
         <div class="fb-row" id="fb-${fbId}" data-payload='${enc(fbPayload)}'>
           <button class="fb-btn up"   title="Correct match"   onclick="sendFeedback('${fbId}', true)">👍</button>
           <button class="fb-btn down" title="Wrong match"     onclick="sendFeedback('${fbId}', false)">👎</button>
+          <button class="fb-btn" title="Save as golden truth"
+            onclick="sendGolden('${fbId}', 'correct')">⭐</button>
         </div>
       </div>
     </div>
@@ -1007,6 +1016,34 @@ async function sendFeedback(fbId, wasCorrect) {
   }
 }
 window.sendFeedback = sendFeedback;
+
+async function sendGolden(fbId, label) {
+  const row = document.getElementById("fb-" + fbId);
+  if (!row) return;
+  let payload;
+  try { payload = JSON.parse(row.dataset.payload); } catch { return; }
+  const body = {
+    dk_name: payload.search_term,
+    source: payload.competitor_id,
+    competitor_url: label === "correct" ? (payload.matched_url ?? null) : null,
+    label,
+  };
+  try {
+    const r = await fetch("/golden", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const thanks = document.createElement("span");
+    thanks.className = "fb-thanks";
+    thanks.textContent = "golden ✓";
+    row.appendChild(thanks);
+  } catch (e) {
+    logLine(`golden failed: ${e.message}`);
+  }
+}
+window.sendGolden = sendGolden;
 
 refreshFeedbackCount();
 
