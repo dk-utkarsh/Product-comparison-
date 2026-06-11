@@ -8,7 +8,8 @@ embeddings + heuristic gates + rapidfuzz for matching.
 
 ```
 Browser → http://localhost:8000 (FastAPI / Python)
-              │  matching engine: normalize → gates → embed → score → verdict
+              │  matching engine: search → triage → PDP fetch → structured
+              │  attribute match → LLM judge (borderline) → match registry
               ▼
           http://127.0.0.1:3100 (Node sidecar)
               │  hosts the TS scraper modules in lib/scrapers/*.ts
@@ -57,9 +58,26 @@ cd api
 uv run pytest -v
 ```
 
-90+ tests covering normalize, attributes, gates, scoring, triage, token
+122 tests covering normalize, attributes, gates, scoring, triage, token
 similarity, query builder, schemas, /match route, and a 20-case TS-parity
 fixture.
+
+## Match registry & golden set
+
+First run for a product does full discovery (search + PDP fetch + structured
+match + LLM judge for borderline pairs) and stores the verified link in
+`product_links`. Later runs just re-scrape the stored URLs for fresh prices.
+👍 permanently verifies a link, 👎 kills it. ⭐ saves a golden-truth label
+(∅ on an empty cell = "no match exists"); measure accuracy with:
+
+```bash
+cd api
+uv run python scripts/eval.py
+```
+
+Set `ANTHROPIC_API_KEY` in `.env` to enable the LLM judge (Claude Haiku,
+budget-capped per run). Without it the pipeline runs rules-only and
+borderline pairs stay POSSIBLE.
 
 ## Docs
 
