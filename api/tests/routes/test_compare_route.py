@@ -23,9 +23,9 @@ def _cp(name, url, price, source, description="", packaging="", pack_size=1):
 
 DK_SEARCH = [_cp("GC Fuji IX GP Capsules A2", "https://www.dentalkart.com/fuji-ix.html",
                  2297, "dentalkart", description="Glass ionomer")]
-PB_SEARCH = [_cp("GC Fuji 9 GP Caps Shade A2", "https://pinkblue.in/fuji-ix", 2236,
+PB_SEARCH = [_cp("GC Fuji 9 GP Capsules Shade A2", "https://pinkblue.in/fuji-ix", 2236,
                  "pinkblue")]
-PB_PDP = _cp("GC Fuji 9 GP Caps Shade A2", "https://pinkblue.in/fuji-ix", 2236,
+PB_PDP = _cp("GC Fuji 9 GP Capsules Shade A2", "https://pinkblue.in/fuji-ix", 2236,
              "pinkblue", description="Glass ionomer capsules, shade A2",
              packaging="Shade: A2")
 
@@ -119,3 +119,23 @@ def test_compare_single_uses_registry_on_second_run():
     res2 = client.post("/compare/single", json={"name": "GC Fuji IX GP Capsules A2"})
     pb = next(c for c in res2.json()["competitors"] if c["competitor_id"] == "pinkblue")
     assert pb["matched_by"] == "registry"
+
+
+def test_compare_single_rediscovers_possible_links():
+    """A 'possible' link (judge off/over budget) must NOT freeze the registry:
+    the second run goes through discovery again instead of refresh."""
+    client = TestClient(app)
+    client.post("/compare/single", json={"name": "GC Fuji IX GP Capsules A2"})
+
+    async def downgrade():
+        db = await get_db()
+        try:
+            await db.execute("UPDATE product_links SET verdict = 'possible'")
+        finally:
+            await db.close()
+    asyncio.run(downgrade())
+
+    res2 = client.post("/compare/single", json={"name": "GC Fuji IX GP Capsules A2"})
+    pb = next(c for c in res2.json()["competitors"] if c["competitor_id"] == "pinkblue")
+    assert pb["matched_by"] != "registry"
+    assert pb["matched_url"] == "https://pinkblue.in/fuji-ix"  # re-discovered

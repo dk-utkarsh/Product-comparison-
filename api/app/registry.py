@@ -101,7 +101,9 @@ async def get_active_links(db: Database, product_id: int, source: str) -> list[L
         FROM product_links
         WHERE product_id = $1 AND source = $2 AND status != 'killed'
           AND verdict IN ('confirmed', 'variant', 'possible')
-        ORDER BY (status = 'human_verified') DESC, confidence DESC
+        ORDER BY (status = 'human_verified') DESC,
+                 CASE verdict WHEN 'confirmed' THEN 3 WHEN 'variant' THEN 2 ELSE 1 END DESC,
+                 confidence DESC
         """,
         product_id, source,
     )

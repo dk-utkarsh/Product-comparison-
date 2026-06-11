@@ -249,7 +249,13 @@ async def _compare_one(
                 links = await registry.get_active_links(db, product_id, cid)
             except Exception:  # registry is best-effort
                 links = []
-            if links:
+            # Refresh only settled links. A 'possible' (judge off/over
+            # budget) must go through discovery again so it can be
+            # re-judged instead of being frozen forever.
+            if links and (
+                links[0].status == "human_verified"
+                or links[0].verdict in ("confirmed", "variant")
+            ):
                 cell = await pipeline.refresh(cid, links[0])
                 if cell is not None:
                     return _cell_to_match(cid, cname, cell, dk_price)

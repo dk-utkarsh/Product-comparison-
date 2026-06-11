@@ -79,6 +79,27 @@ def test_link_roundtrip_and_status_protection():
     assert links2[0].verdict == "confirmed"  # not downgraded
 
 
+def test_active_links_rank_verdict_above_confidence():
+    async def run():
+        db = await get_db()
+        try:
+            pid = await registry.upsert_product(db, _dk_record())
+            await registry.upsert_link(
+                db, pid, "pinkblue", "https://pinkblue.in/maybe",
+                verdict="possible", confidence=0.85, matched_by="rules",
+                reason="", llm_response=None)
+            await registry.upsert_link(
+                db, pid, "pinkblue", "https://pinkblue.in/sure",
+                verdict="confirmed", confidence=0.7, matched_by="rules",
+                reason="", llm_response=None)
+            return await registry.get_active_links(db, pid, "pinkblue")
+        finally:
+            await db.close()
+    links = asyncio.run(run())
+    assert [link.verdict for link in links] == ["confirmed", "possible"]
+    assert links[0].competitor_url == "https://pinkblue.in/sure"
+
+
 def test_killed_links_are_excluded():
     async def run():
         db = await get_db()
