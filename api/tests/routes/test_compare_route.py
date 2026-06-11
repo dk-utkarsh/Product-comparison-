@@ -5,7 +5,7 @@ import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
-from app import pipeline
+from app import pipeline, registry
 from app.db import get_db
 from app.main import app
 from app.scrapers import bridge
@@ -89,6 +89,28 @@ def test_compare_single_matches_and_persists_link():
         finally:
             await db.close()
     assert asyncio.run(count_links()) >= 1
+
+
+def test_compare_single_excludes_killed_urls_from_rediscovery():
+    client = TestClient(app)
+    res1 = client.post("/compare/single", json={"name": "GC Fuji IX GP Capsules A2"})
+    assert res1.status_code == 200
+
+    async def kill_link():
+        db = await get_db()
+        try:
+            return await registry.set_link_status(
+                db, "https://www.dentalkart.com/fuji-ix.html",
+                "pinkblue", "https://pinkblue.in/fuji-ix", "killed")
+        finally:
+            await db.close()
+    assert asyncio.run(kill_link()) is True
+
+    res2 = client.post("/compare/single", json={"name": "GC Fuji IX GP Capsules A2"})
+    pb = next(c for c in res2.json()["competitors"] if c["competitor_id"] == "pinkblue")
+    # The only stub candidate is the killed URL -> the cell must come back empty.
+    assert pb["matched_url"] is None
+    assert pb["matched_by"] is None
 
 
 def test_compare_single_uses_registry_on_second_run():

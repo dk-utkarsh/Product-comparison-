@@ -116,6 +116,16 @@ async def discover(
 ) -> Cell:
     pooled = await scrape_all_queries(competitor_id, queries)
     pool = _prefilter(dk_record.name, [c for c in pooled if c.name and c.price > 0])
+
+    killed: set[str] = set()
+    if db is not None and product_id is not None:
+        try:
+            killed = await registry.get_killed_urls(db, product_id, competitor_id)
+        except Exception:  # registry is best-effort
+            log.warning("killed-url lookup failed", competitor=competitor_id)
+    if killed:
+        pool = [c for c in pool if c.url not in killed]
+
     if not pool:
         return Cell(None, None, 0.0, [], None, None, len(pooled))
 
@@ -123,6 +133,9 @@ async def discover(
     for cand, tri in _top_candidates(dk_record.name, pool):
         pdp = await fetch_product(competitor_id, cand.url)
         rich = pdp or cand  # thin fallback: search-card data only
+        if rich.url in killed:
+            # PDP fetch can canonicalize the URL into a killed one.
+            continue
         rec = record_from(rich)
         sm = structured_match(dk_record, rec)
 

@@ -116,6 +116,16 @@ async def get_active_links(db: Database, product_id: int, source: str) -> list[L
     ]
 
 
+async def get_killed_urls(db: Database, product_id: int, source: str) -> set[str]:
+    """Competitor URLs a human 👎-killed — re-discovery must never resurface them."""
+    rows = await db.fetch(
+        "SELECT competitor_url FROM product_links "
+        "WHERE product_id = $1 AND source = $2 AND status = 'killed'",
+        product_id, source,
+    )
+    return {r["competitor_url"] for r in rows}
+
+
 async def find_product_id(db: Database, dk_url: str) -> int | None:
     row = await db.fetchrow("SELECT id FROM products WHERE url = $1", dk_url)
     return int(row["id"]) if row else None
