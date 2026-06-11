@@ -30,6 +30,7 @@ class FeedbackRequest(BaseModel):
     verdict: str
     reasons: str | None = None
     was_correct: bool
+    dk_url: str | None = None
 
 
 class FeedbackResponse(BaseModel):
@@ -67,6 +68,14 @@ async def post_feedback(req: FeedbackRequest) -> FeedbackResponse:
             req.reasons,
             req.was_correct,
         )
+        if req.dk_url and req.matched_url:
+            from app.registry import set_link_status
+            status = "human_verified" if req.was_correct else "killed"
+            try:
+                await set_link_status(
+                    db, req.dk_url, req.competitor_id, req.matched_url, status)
+            except Exception:  # feedback insert already landed
+                pass
         row = await db.fetchrow("SELECT count(*) AS c FROM match_feedback")
         return FeedbackResponse(total=int(row["c"]) if row else 0)
     finally:
