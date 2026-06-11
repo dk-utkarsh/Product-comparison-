@@ -206,14 +206,20 @@ async def discover(
     return best or Cell(None, None, 0.0, [], None, None, len(pooled))
 
 
-async def refresh(competitor_id: str, link: registry.Link) -> Cell | None:
+async def refresh(
+    competitor_id: str, link: registry.Link, dk_record: ProductRecord
+) -> Cell | None:
     """Re-scrape a known link's PDP for a fresh price. None -> caller
     falls back to discovery for this competitor."""
     pdp = await fetch_product(competitor_id, link.competitor_url)
     if pdp is None or pdp.price <= 0:
         return None
+    pack_note: str | None = None
+    if (pdp.pack_size != dk_record.pack_size
+            and pdp.pack_size > 0 and dk_record.pack_size > 0):
+        pack_note = f"{dk_record.pack_size}/pack vs {pdp.pack_size}/pack"
     return Cell(
         candidate=pdp, verdict=link.verdict, confidence=link.confidence,
         reasons=[f"registry ({link.status})", link.reason or ""],
-        matched_by="registry", pack_note=None, candidates_seen=0,
+        matched_by="registry", pack_note=pack_note, candidates_seen=0,
     )

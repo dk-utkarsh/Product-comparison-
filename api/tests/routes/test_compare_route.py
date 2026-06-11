@@ -21,13 +21,16 @@ def _cp(name, url, price, source, description="", packaging="", pack_size=1):
     )
 
 
+# DK sells 50/pack (unit ₹45.94), pinkblue 10/pack (unit ₹223.6):
+# unit ratio ~4.87 stays inside the 5x band, so the pair stays confirmed
+# while exercising the pack_note + per-unit delta path.
 DK_SEARCH = [_cp("GC Fuji IX GP Capsules A2", "https://www.dentalkart.com/fuji-ix.html",
-                 2297, "dentalkart", description="Glass ionomer")]
+                 2297, "dentalkart", description="Glass ionomer", pack_size=50)]
 PB_SEARCH = [_cp("GC Fuji 9 GP Capsules Shade A2", "https://pinkblue.in/fuji-ix", 2236,
                  "pinkblue")]
 PB_PDP = _cp("GC Fuji 9 GP Capsules Shade A2", "https://pinkblue.in/fuji-ix", 2236,
              "pinkblue", description="Glass ionomer capsules, shade A2",
-             packaging="Shade: A2")
+             packaging="Shade: A2", pack_size=10)
 
 
 @pytest.fixture(autouse=True)
@@ -80,6 +83,9 @@ def test_compare_single_matches_and_persists_link():
     assert pb["matched_url"] == "https://pinkblue.in/fuji-ix"
     assert pb["verdict"] in ("confirmed", "possible")
     assert pb["matched_by"] in ("rules", "llm")
+    # 50/pack vs 10/pack -> pack note + apples-to-apples per-unit delta
+    assert pb["pack_note"] == "50/pack vs 10/pack"
+    assert pb["price_diff_per_unit"] == pytest.approx(45.94 - 223.6, abs=0.01)
 
     async def count_links():
         db = await get_db()

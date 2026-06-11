@@ -905,6 +905,7 @@ function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null
         </div>
         ${c.matched_url ? `<a class="cell-link" href="${enc(c.matched_url)}" target="_blank" rel="noopener">view ↗</a>` : ""}
         ${!isDk ? `<div>${fmtDiff(c.price_diff_vs_dk)}</div>` : ""}
+        ${c.pack_note ? `<div class="cell-meta"><span class="score-num">${enc(c.pack_note)}${c.price_diff_per_unit != null ? " · Δ/unit " + fmtMoney(Math.abs(c.price_diff_per_unit)) + (c.price_diff_per_unit > 0 ? " below DK" : " above DK") : ""}</span></div>` : ""}
         <div class="fb-row" id="fb-${fbId}" data-payload='${enc(fbPayload)}'>
           <button class="fb-btn up"   title="Correct match"   onclick="sendFeedback('${fbId}', true)">👍</button>
           <button class="fb-btn down" title="Wrong match"     onclick="sendFeedback('${fbId}', false)">👎</button>

@@ -58,6 +58,7 @@ class CompetitorMatch(BaseModel):
     cosine: float | None
     reasons: list[str] = []
     price_diff_vs_dk: float | None = None
+    price_diff_per_unit: float | None = None
     matched_by: str | None = None
     pack_note: str | None = None
 
@@ -184,11 +185,17 @@ def _empty_cell(cid: str, cname: str, seen: int) -> CompetitorMatch:
 
 
 def _cell_to_match(cid: str, cname: str, cell: pipeline.Cell,
-                   dk_price: float | None) -> CompetitorMatch:
+                   dk_price: float | None,
+                   dk_unit_price: float | None) -> CompetitorMatch:
     c = cell.candidate
     if c is None or cell.verdict is None:
         return _empty_cell(cid, cname, cell.candidates_seen)
     diff = round(dk_price - c.price, 2) if dk_price and dk_price > 0 else None
+    # Different pack sizes make the headline Δ misleading — also expose a
+    # per-unit Δ so the UI can show an apples-to-apples comparison.
+    unit_diff: float | None = None
+    if cell.pack_note and dk_unit_price and dk_unit_price > 0 and c.unit_price > 0:
+        unit_diff = round(dk_unit_price - c.unit_price, 2)
     return CompetitorMatch(
         competitor_id=cid, competitor_name=cname,
         candidates_seen=cell.candidates_seen,
@@ -196,6 +203,7 @@ def _cell_to_match(cid: str, cname: str, cell: pipeline.Cell,
         matched_image=c.image, in_stock=c.in_stock,
         verdict=cell.verdict, score=cell.confidence, cosine=None,
         reasons=cell.reasons, price_diff_vs_dk=diff,
+        price_diff_per_unit=unit_diff,
         matched_by=cell.matched_by, pack_note=cell.pack_note,
     )
 
@@ -241,6 +249,7 @@ async def _compare_one(
     )
     queries = extract_smart_queries(dk_record.name, ctx) or [row.name]
     dk_price = dk_match.matched_price
+    dk_unit_price = dk_record.unit_price or dk_record.price
 
     async def one_competitor(cid: str, cname: str) -> CompetitorMatch:
         # Phase 2: registry hit -> cheap refresh.
@@ -256,15 +265,15 @@ async def _compare_one(
                 links[0].status == "human_verified"
                 or links[0].verdict in ("confirmed", "variant")
             ):
-                cell = await pipeline.refresh(cid, links[0])
+                cell = await pipeline.refresh(cid, links[0], dk_record)
                 if cell is not None:
-                    return _cell_to_match(cid, cname, cell, dk_price)
+                    return _cell_to_match(cid, cname, cell, dk_price, dk_unit_price)
         # Phase 1: full discovery.
         cell = await pipeline.discover(
             cid, queries, dk_record,
             budget=budget, db=db, product_id=product_id,
         )
-        return _cell_to_match(cid, cname, cell, dk_price)
+        return _cell_to_match(cid, cname, cell, dk_price, dk_unit_price)
 
     out = list(await asyncio.gather(
         *(one_competitor(cid, cname) for cid, cname in COMPETITORS)
