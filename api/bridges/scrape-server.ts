@@ -6,6 +6,7 @@
  *
  * Endpoints:
  *   GET  /health
+ *   GET  /product?scraper=&url=
  *   GET  /:competitorId?q=<product name>
  *
  * Response: JSON array of ProductData (raw candidates, no matching).

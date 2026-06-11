@@ -349,7 +349,8 @@ async def compare_batch(
 ) -> CompareBatchResponse:
     """Run /compare/single for every row of the xlsx.
 
-    Concurrency is bounded — each row already fans out across 9 competitors,
+    Concurrency is bounded — each row already fans out across the configured
+    competitors,
     so running too many rows in parallel will trip rate limits on competitor
     sites. Default 2 in-flight rows.
     """

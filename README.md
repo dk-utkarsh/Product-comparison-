@@ -22,7 +22,9 @@ Browser → http://localhost:8000 (FastAPI / Python)
 * **`lib/scrapers/`** — TypeScript HTTP/HTML scrapers. One module per
   competitor. Exposed to Python via the Node sidecar.
 * **`api/bridges/scrape-server.ts`** — Node sidecar that loads every
-  scraper once and serves them over `localhost:3100`.
+  scraper once and serves them over `localhost:3100`
+  (`GET /:competitorId?q=` for search, `GET /product?scraper=&url=`
+  for a single PDP).
 
 ## Running locally
 
@@ -41,6 +43,7 @@ npm run scrape-server
 ```bash
 cd api
 uv sync            # one-off
+uv run alembic upgrade head   # one-off: create/upgrade tables
 uv run uvicorn app.main:app --port 8000 --reload
 # → http://localhost:8000/        — drag-and-drop tester UI
 # → http://localhost:8000/docs    — OpenAPI explorer

@@ -909,8 +909,8 @@ function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null
         <div class="fb-row" id="fb-${fbId}" data-payload='${enc(fbPayload)}'>
           <button class="fb-btn up"   title="Correct match"   onclick="sendFeedback('${fbId}', true)">👍</button>
           <button class="fb-btn down" title="Wrong match"     onclick="sendFeedback('${fbId}', false)">👎</button>
-          <button class="fb-btn" title="Save as golden truth"
-            onclick="sendGolden('${fbId}', 'correct')">⭐</button>
+          ${!isDk ? `<button class="fb-btn" title="Save as golden truth"
+            onclick="sendGolden('${fbId}', 'correct')">⭐</button>` : ""}
         </div>
       </div>
     </div>
