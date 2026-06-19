@@ -1,3 +1,5 @@
+import type { VariantSpec } from "./variant-spec";
+
 export interface ProductVariant {
   name: string;
   sku: string;
@@ -5,6 +7,8 @@ export interface ProductVariant {
   mrp: number;
   packSize: number;
   unitPrice: number;
+  variantSpec?: VariantSpec; // parsed size/composition for this specific variant
+  inStock?: boolean; // per-variant stock; absent = unknown/in-stock
 }
 
 export interface ProductData {
@@ -23,6 +27,7 @@ export interface ProductData {
   sku?: string; // product SKU code (e.g., VP2382, S5083)
   variants?: ProductVariant[]; // per-SKU variants when the listing is configurable
   selectedVariantSku?: string; // which variant is currently reflected in `price` / `name`
+  variantSpec?: VariantSpec; // parsed size/composition spec (powder g, liquid ml, capsules, pack, Extra line)
 }
 
 export type MatchVerdict = "confirmed" | "possible" | "variant" | "rejected";

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import re
 
 import openpyxl
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -24,9 +25,16 @@ from app.db import Database, get_db
 from app.matching.llm_judge import JudgeBudget
 from app.matching.query_builder import ProductContext, extract_smart_queries
 from app.matching.score import Verdict
+from app.matching.normalize import normalize_for_match
 from app.matching.structured import ProductRecord
-from app.matching.tokens import distinguishing_tokens
+from app.matching.tokens import distinguishing_tokens, fuzz_ratio
 from app.matching.triage import triage_batch
+from app.matching.variant_spec import (
+    VariantSpec,
+    base_name,
+    base_quantity,
+    config_from_text,
+)
 from app.scrapers.bridge import (
     COMPETITORS,
     CompetitorProduct,
@@ -61,6 +69,7 @@ class CompetitorMatch(BaseModel):
     price_diff_per_unit: float | None = None
     matched_by: str | None = None
     pack_note: str | None = None
+    spec_match: str | None = None  # exact | same-tier | different-size
 
 
 class CompareResult(BaseModel):
@@ -184,44 +193,166 @@ def _empty_cell(cid: str, cname: str, seen: int) -> CompetitorMatch:
     )
 
 
+def _per_unit_diff(
+    dk_record: ProductRecord | None, c: CompetitorProduct,
+    dk_price: float | None, dk_unit_price: float | None,
+) -> float | None:
+    """Per-unit Δ for an apples-to-apples comparison when the two sides differ in
+    size. Prefer composition base quantity (e.g. ₹ per gram of powder); fall
+    back to pack-size unit price."""
+    c_spec = VariantSpec.from_dict(c.variant_spec)
+    dk_spec = dk_record.variant_spec if dk_record else None
+    if (
+        dk_spec is not None and c_spec is not None
+        and dk_price and dk_price > 0 and c.price > 0
+    ):
+        dk_qty, dk_unit = base_quantity(dk_spec)
+        c_qty, c_unit = base_quantity(c_spec)
+        if dk_unit == c_unit and dk_qty > 0 and c_qty > 0 and (dk_qty != c_qty):
+            return round(dk_price / dk_qty - c.price / c_qty, 2)
+    if dk_unit_price and dk_unit_price > 0 and c.unit_price > 0:
+        return round(dk_unit_price - c.unit_price, 2)
+    return None
+
+
 def _cell_to_match(cid: str, cname: str, cell: pipeline.Cell,
                    dk_price: float | None,
-                   dk_unit_price: float | None) -> CompetitorMatch:
+                   dk_unit_price: float | None,
+                   dk_record: ProductRecord | None = None) -> CompetitorMatch:
     c = cell.candidate
     if c is None or cell.verdict is None:
         return _empty_cell(cid, cname, cell.candidates_seen)
     diff = round(dk_price - c.price, 2) if dk_price and dk_price > 0 else None
-    # Different pack sizes make the headline Δ misleading — also expose a
+    # Different size/pack makes the headline Δ misleading — also expose a
     # per-unit Δ so the UI can show an apples-to-apples comparison.
     unit_diff: float | None = None
-    if cell.pack_note and dk_unit_price and dk_unit_price > 0 and c.unit_price > 0:
-        unit_diff = round(dk_unit_price - c.unit_price, 2)
+    if cell.pack_note:
+        unit_diff = _per_unit_diff(dk_record, c, dk_price, dk_unit_price)
+    reasons = list(cell.reasons)
+    # Show the correct product even when it's out of stock (flag it).
+    if c.in_stock is False:
+        reasons = ["out of stock", *reasons]
     return CompetitorMatch(
         competitor_id=cid, competitor_name=cname,
         candidates_seen=cell.candidates_seen,
         matched_name=c.name, matched_url=c.url, matched_price=c.price,
         matched_image=c.image, in_stock=c.in_stock,
         verdict=cell.verdict, score=cell.confidence, cosine=None,
-        reasons=cell.reasons, price_diff_vs_dk=diff,
+        reasons=reasons, price_diff_vs_dk=diff,
         price_diff_per_unit=unit_diff,
         matched_by=cell.matched_by, pack_note=cell.pack_note,
+        spec_match=cell.spec_match,
+    )
+
+
+def _paren_code(name: str) -> str:
+    """Last parenthetical code of a product name, normalized — the per-variant
+    model code that distinguishes siblings, e.g. "(KGF 8)" → "kgf 8",
+    "(KO 12K P03A)" → "ko 12k p03a". (For grouped products whose children all
+    share one code like "(JULL-DENT 223)" it simply doesn't narrow anything.)"""
+    codes = re.findall(r"\(([^)]+)\)", name)
+    if not codes:
+        return ""
+    return re.sub(r"\s+", " ", codes[-1]).strip().lower()
+
+
+def _pick_dk_child(input_name: str, variants: list[dict]) -> dict | None:
+    """For a grouped Dentalkart product, resolve the input/xlsx name to the
+    specific child sub-variant: filter by config (tier/torque/Extra), then by
+    exact model code, then closest name. Returns None when the input pins
+    neither a config nor a model code (keep the grouped listing as-is)."""
+    in_kit, in_torque, in_extra = config_from_text(input_name)
+    in_code = _paren_code(input_name)
+    # The shared parent code (e.g. "JULL-DENT 223") isn't a per-variant
+    # discriminator; treat a code as useful only if it differs across children.
+    distinct_codes = {_paren_code(str(v.get("name", ""))) for v in variants}
+    use_code = bool(in_code) and len(distinct_codes - {""}) > 1
+    if not (in_kit or in_torque or in_extra or use_code):
+        return None
+
+    in_norm = normalize_for_match(input_name)
+    compatible: list[dict] = []
+    for v in variants:
+        vs = VariantSpec.from_dict(v.get("variantSpec"))
+        vk = vs.kit_tier if vs else None
+        vt = vs.torque if vs else None
+        ve = vs.is_extra if vs else False
+        if in_kit and vk and vk != in_kit:
+            continue
+        if in_torque and vt and vt != in_torque:
+            continue
+        if in_extra != ve and (in_extra or ve):
+            continue
+        compatible.append(v)
+    if not compatible:
+        return None
+
+    # Exact model-code match wins outright (KGF 8 vs KGF 9 vs KO 1/2).
+    if use_code:
+        coded = [v for v in compatible if _paren_code(str(v.get("name", ""))) == in_code]
+        if coded:
+            compatible = coded
+
+    return max(
+        compatible,
+        key=lambda v: fuzz_ratio(in_norm, normalize_for_match(str(v.get("name", "")))),
     )
 
 
 async def _resolve_dk(row: DkRow) -> tuple[CompetitorMatch | None, ProductRecord | None]:
     """Search dentalkart.com, pick the best self-match, enrich via PDP."""
     dk_raw = await scrape_competitor("dentalkart", row.name)
-    dk_match = _best_match(row.name, dk_raw, None)
+    # A config-specific child name (e.g. "...Premium...Torque Ratchet") may not
+    # surface the grouped parent, which DK indexes under the base name. Search
+    # the base name too and pool, so the parent is in the running.
+    base = base_name(row.name)
+    rank_name = row.name
+    if base and base.lower() != row.name.lower():
+        extra = await scrape_competitor("dentalkart", base)
+        seen_urls = {c.url for c in dk_raw}
+        dk_raw = dk_raw + [c for c in extra if c.url not in seen_urls]
+        rank_name = base  # rank candidates against the base so the parent wins
+    dk_match = _best_match(rank_name, dk_raw, None)
     if dk_match is None:
         return None, None
     dk_match.competitor_id = "dentalkart"
     dk_match.competitor_name = "Dentalkart"
     pdp = await fetch_product("dentalkart", dk_match.matched_url or "")
-    src = pdp or next(
-        (c for c in dk_raw if c.url == dk_match.matched_url), None)
+    search_cand = next((c for c in dk_raw if c.url == dk_match.matched_url), None)
+    src = pdp or search_cand
     if src is None:
         return dk_match, None
-    return dk_match, pipeline.record_from(src)
+    dk_record = pipeline.record_from(src)
+
+    # Grouped product → resolve to the exact child the input names, showing that
+    # child's full name + its real price + stock (the parent listing collapses
+    # every variant to one wrong price, e.g. Julldent → ₹1995 'Box Only').
+    child = _pick_dk_child(row.name, pdp.variants) if pdp and pdp.variants else None
+    if child is not None:
+        dk_match.matched_name = str(child.get("name") or dk_match.matched_name)
+        dk_match.matched_price = float(child.get("price") or dk_match.matched_price or 0)
+        if "inStock" in child:
+            dk_match.in_stock = bool(child["inStock"])
+        dk_record.name = dk_match.matched_name
+        dk_record.price = dk_match.matched_price
+        dk_record.pack_size = int(child.get("packSize") or 1)
+        dk_record.unit_price = float(child.get("unitPrice") or dk_record.price)
+        dk_record.variant_spec = VariantSpec.from_dict(child.get("variantSpec"))
+        return dk_match, dk_record
+
+    # Dentalkart is the source of truth. Use the listing price and the grouped
+    # parent's composition spec from the search API — the PDP often resolves to
+    # a single cheaper child (e.g. GC Gold Label 9 PDP = ₹1369 / 5g, but the
+    # listing is ₹2760 / 15g+13.1g).
+    if dk_match.matched_price:
+        dk_record.price = dk_match.matched_price
+        if dk_record.pack_size and dk_record.pack_size > 1:
+            dk_record.unit_price = round(dk_record.price / dk_record.pack_size, 2)
+        else:
+            dk_record.unit_price = dk_record.price
+    if search_cand is not None and search_cand.variant_spec:
+        dk_record.variant_spec = VariantSpec.from_dict(search_cand.variant_spec)
+    return dk_match, dk_record
 
 
 async def _compare_one(
@@ -267,13 +398,13 @@ async def _compare_one(
             ):
                 cell = await pipeline.refresh(cid, links[0], dk_record)
                 if cell is not None:
-                    return _cell_to_match(cid, cname, cell, dk_price, dk_unit_price)
+                    return _cell_to_match(cid, cname, cell, dk_price, dk_unit_price, dk_record)
         # Phase 1: full discovery.
         cell = await pipeline.discover(
             cid, queries, dk_record,
-            budget=budget, db=db, product_id=product_id,
+            budget=budget, db=db, product_id=product_id, dk_price=dk_price,
         )
-        return _cell_to_match(cid, cname, cell, dk_price, dk_unit_price)
+        return _cell_to_match(cid, cname, cell, dk_price, dk_unit_price, dk_record)
 
     out = list(await asyncio.gather(
         *(one_competitor(cid, cname) for cid, cname in COMPETITORS)

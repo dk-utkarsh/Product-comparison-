@@ -1,6 +1,7 @@
 import { smartFetch } from "../http";
 import { ProductData } from "../types";
 import { detectPackSize, calculateUnitPrice } from "../pack-detector";
+import { parseVariantSpec } from "../variant-spec";
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -213,14 +214,21 @@ export async function fetchOralkartProduct(url: string): Promise<ProductData | n
 
     const variants = (p.variants || []).map((v) => {
       const vPrice = (v.price ?? 0) / 100;
-      const vPack = detectPackSize(v.title || name, "", "");
+      const vTitle = v.title || "";
+      const vPack = detectPackSize(vTitle || name, "", "");
+      // Parse from the variant TITLE only ("Big Pack" / "(Extra) Mini Pack").
+      // The shared description lists every size's grams, so including it would
+      // stamp identical (wrong) grams on all variants — the title is the only
+      // per-variant signal here.
+      const vSpec = parseVariantSpec(`${name} ${vTitle}`);
       return {
-        name: v.title || "",
+        name: vTitle,
         sku: v.sku || "",
         price: vPrice,
         mrp: (v.compare_at_price ?? 0) / 100 || vPrice,
         packSize: vPack,
         unitPrice: calculateUnitPrice(vPrice, vPack),
+        variantSpec: vSpec,
       };
     });
 
@@ -241,6 +249,7 @@ export async function fetchOralkartProduct(url: string): Promise<ProductData | n
       unitPrice: calculateUnitPrice(price, packSize),
       sku: p.variants?.[0]?.sku || undefined,
       variants,
+      variantSpec: parseVariantSpec(`${name} ${description}`),
     };
   } catch {
     return null;

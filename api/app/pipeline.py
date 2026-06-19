@@ -27,6 +27,8 @@ from app.matching.structured import (
 )
 from app.matching.tokens import distinguishing_tokens
 from app.matching.triage import TriageResult, triage_batch
+from app.matching.variant_spec import SpecMatch, VariantSpec, has_size_signal
+from app.matching.variant_spec import compare as compare_spec
 from app.scrapers.bridge import CompetitorProduct, fetch_product, scrape_competitor
 from app.settings import get_settings
 
@@ -43,6 +45,7 @@ class Cell:
     matched_by: str | None       # rules | llm | registry | None
     pack_note: str | None
     candidates_seen: int
+    spec_match: str | None = None  # exact | same-tier | different-size | None
 
 
 def record_from(cp: CompetitorProduct) -> ProductRecord:
@@ -51,7 +54,74 @@ def record_from(cp: CompetitorProduct) -> ProductRecord:
         packaging=cp.packaging, price=cp.price, mrp=cp.mrp,
         pack_size=cp.pack_size, unit_price=cp.unit_price,
         sku=cp.sku, source=cp.source,
+        variant_spec=VariantSpec.from_dict(cp.variant_spec),
     )
+
+
+# Rank for choosing among a listing's sub-variants vs the DK truth spec.
+_SPEC_RANK = {
+    SpecMatch.EXACT: 0,
+    SpecMatch.SAME_TIER: 1,
+    SpecMatch.UNKNOWN: 2,
+    SpecMatch.DIFFERENT_SIZE: 3,
+}
+
+
+def select_variant(
+    cp: CompetitorProduct, dk_spec: VariantSpec | None, dk_price: float | None
+) -> None:
+    """When a competitor listing has sub-variants, pick the one matching the
+    Dentalkart product and rewrite `cp`'s price/spec to it. The "Extra"
+    formulation line is never selected against a non-Extra DK product (and vice
+    versa). Selection order: spec match (exact > same-tier > unknown >
+    different-size), then price-proximity to the DK listing price — which also
+    disambiguates grams-less variants (Big ₹2580 ≈ DK ₹2760, not Mini ₹1286).
+    """
+    # Real variants only — drop Shopify's placeholder "Default Title" (a
+    # single-variant product) and empty rows.
+    real = [
+        v for v in cp.variants
+        if str(v.get("name") or "").strip().lower() not in ("", "default title")
+        and float(v.get("price") or 0) > 0
+    ]
+    if len(real) < 2:
+        return  # nothing meaningful to choose between
+
+    # Only intervene for genuine SIZE/composition variants. Shade/slot variants
+    # (no size signal) must not be reshuffled by price — that just swaps the
+    # listing price for an arbitrary same-product variant.
+    dk_has = dk_spec is not None and has_size_signal(dk_spec)
+    variant_specs = [VariantSpec.from_dict(v.get("variantSpec")) for v in real]
+    any_var_has = any(vs is not None and has_size_signal(vs) for vs in variant_specs)
+    if not (dk_has or any_var_has):
+        return
+
+    scored: list[tuple[int, float, dict[str, Any]]] = []
+    for v, vs in zip(real, variant_specs, strict=True):
+        match = (
+            compare_spec(dk_spec, vs)
+            if dk_spec is not None and vs is not None
+            else SpecMatch.UNKNOWN
+        )
+        if match is SpecMatch.DIFFERENT_FORMULATION:
+            continue  # never cross the Extra / non-Extra line
+        price = float(v.get("price") or 0)
+        prox = abs(price - dk_price) if dk_price and dk_price > 0 else 0.0
+        scored.append((_SPEC_RANK.get(match, 2), prox, v))
+
+    if not scored:
+        return
+    scored.sort(key=lambda t: (t[0], t[1]))
+    _, _, chosen = scored[0]
+
+    # Rewrite price/spec only — leave cp.name untouched so name-similarity
+    # scoring isn't polluted by appended variant labels.
+    cp.price = float(chosen.get("price") or cp.price)
+    cp.mrp = float(chosen.get("mrp") or cp.mrp)
+    cp.pack_size = int(chosen.get("packSize") or cp.pack_size)
+    cp.unit_price = float(chosen.get("unitPrice") or cp.unit_price)
+    if chosen.get("variantSpec"):
+        cp.variant_spec = chosen["variantSpec"]
 
 
 async def scrape_all_queries(competitor_id: str, queries: list[str]) -> list[CompetitorProduct]:
@@ -113,6 +183,7 @@ async def discover(
     budget: JudgeBudget,
     db: Database | None,
     product_id: int | None,
+    dk_price: float | None = None,
 ) -> Cell:
     pooled = await scrape_all_queries(competitor_id, queries)
     pool = _prefilter(dk_record.name, [c for c in pooled if c.name and c.price > 0])
@@ -136,6 +207,8 @@ async def discover(
         if rich.url in killed:
             # PDP fetch can canonicalize the URL into a killed one.
             continue
+        # Configurable/grouped listing → pick the sub-variant matching DK.
+        select_variant(rich, dk_record.variant_spec, dk_price)
         rec = record_from(rich)
         sm = structured_match(dk_record, rec)
 
@@ -196,7 +269,7 @@ async def discover(
 
         if verdict in _VERDICT_RANK:
             cell = Cell(rich, verdict, confidence, reasons, matched_by,
-                        sm.pack_note, len(pooled))
+                        sm.pack_note, len(pooled), spec_match=sm.spec_match)
             if best is None or (
                 (_VERDICT_RANK[verdict], confidence)
                 > (_VERDICT_RANK[best.verdict or ""], best.confidence)

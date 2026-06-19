@@ -15,6 +15,9 @@ from app.matching.embed import get_embedder
 from app.matching.gates import gate_check
 from app.matching.normalize import normalize_for_match
 from app.matching.tokens import fuzz_ratio, weighted_overlap
+from app.matching.variant_spec import SpecMatch, VariantSpec
+from app.matching.variant_spec import compare as compare_spec
+from app.matching.variant_spec import describe as describe_spec
 from app.settings import get_settings
 
 
@@ -38,6 +41,7 @@ class ProductRecord:
     unit_price: float = 0.0
     sku: str | None = None
     source: str = ""
+    variant_spec: VariantSpec | None = None
 
 
 @dataclass(slots=True)
@@ -59,6 +63,7 @@ class StructuredResult:
     features: MatchFeatures
     reasons: list[str] = field(default_factory=list)
     pack_note: str | None = None
+    spec_match: str | None = None  # exact | same-tier | different-size | None
 
 
 _VARIANT_FIELDS: tuple[str, ...] = (
@@ -97,6 +102,24 @@ def structured_match(search: ProductRecord, candidate: ProductRecord) -> Structu
         return StructuredResult(
             StructuredVerdict.REJECTED, MatchFeatures(brand_match=False),
             [f"brand conflict: {s_attrs.brand} vs {c_attrs.brand}"])
+
+    # Sub-variant / composition check. The "Extra" formulation line is a
+    # genuinely different product — never match it to the non-Extra line, even
+    # when the base names are identical.
+    spec_match: str | None = None
+    if search.variant_spec is not None and candidate.variant_spec is not None:
+        sm_enum = compare_spec(search.variant_spec, candidate.variant_spec)
+        spec_match = sm_enum.value
+        if sm_enum is SpecMatch.DIFFERENT_FORMULATION:
+            return StructuredResult(
+                StructuredVerdict.REJECTED, MatchFeatures(),
+                [
+                    "different formulation: "
+                    f"{describe_spec(search.variant_spec)} vs "
+                    f"{describe_spec(candidate.variant_spec)}"
+                ],
+                spec_match=spec_match,
+            )
 
     # Hard rule: a variant attribute explicitly present on BOTH sides and
     # different means different variant. A2 != A3, .016 != .018.
@@ -153,16 +176,34 @@ def structured_match(search: ProductRecord, candidate: ProductRecord) -> Structu
     if unit_ratio is not None:
         reasons.append(f"unit_price_ratio={unit_ratio:.2f}")
 
+    # Same product, different size (e.g. DK 15g vs competitor 5g). Still a valid
+    # match — surface the size delta so the cell can show a per-unit price.
+    if spec_match == SpecMatch.DIFFERENT_SIZE.value:
+        pack_note = (
+            f"{describe_spec(search.variant_spec)} vs "
+            f"{describe_spec(candidate.variant_spec)}"
+        )
+        reasons.append(f"different size: {pack_note}")
+    elif spec_match in (SpecMatch.EXACT.value, SpecMatch.SAME_TIER.value):
+        reasons.append(f"spec {spec_match}")
+
     strong_line = cosine >= settings.confirm_cosine or fzr >= settings.confirm_fuzz
     brand_ok = features.brand_match is not False
     # Thin data (no description/packaging on a side) normally blocks CONFIRMED,
     # but near-identical names with an agreeing variant attr are safe anyway.
     data_ok = (not thin) or (compared >= 1 and fzr >= 0.95)
+    # An exact composition match is itself strong evidence the data is sound.
+    if spec_match == SpecMatch.EXACT.value:
+        data_ok = True
     if strong_line and brand_ok and in_band and data_ok and (compared >= 1 or cosine >= 0.85):
-        return StructuredResult(StructuredVerdict.CONFIRMED, features, reasons, pack_note)
+        return StructuredResult(
+            StructuredVerdict.CONFIRMED, features, reasons, pack_note, spec_match=spec_match
+        )
 
     if not in_band:
         reasons.append("unit price outside band")
     if thin:
         reasons.append("thin data on one side")
-    return StructuredResult(StructuredVerdict.BORDERLINE, features, reasons, pack_note)
+    return StructuredResult(
+        StructuredVerdict.BORDERLINE, features, reasons, pack_note, spec_match=spec_match
+    )

@@ -11,7 +11,7 @@ Start the sidecar yourself with:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -53,9 +53,14 @@ class CompetitorProduct:
     pack_size: int
     unit_price: float
     sku: str | None = None
+    # Parsed size/composition spec (raw dict from lib/variant-spec.ts) and the
+    # listing's sub-variants (each a dict with price + its own variantSpec).
+    variant_spec: dict[str, Any] | None = None
+    variants: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> CompetitorProduct:
+        raw_variants = d.get("variants")
         return cls(
             name=str(d.get("name", "")),
             url=str(d.get("url", "")),
@@ -70,6 +75,10 @@ class CompetitorProduct:
             pack_size=int(d.get("packSize") or 1),
             unit_price=float(d.get("unitPrice") or 0),
             sku=d.get("sku"),
+            variant_spec=d.get("variantSpec") if isinstance(d.get("variantSpec"), dict) else None,
+            variants=[v for v in raw_variants if isinstance(v, dict)]
+            if isinstance(raw_variants, list)
+            else [],
         )
 
 

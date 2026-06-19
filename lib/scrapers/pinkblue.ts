@@ -1,8 +1,9 @@
 import { smartFetch } from "../http";
 import * as cheerio from "cheerio";
-import { ProductData } from "../types";
+import { ProductData, ProductVariant } from "../types";
 import { detectPackSize, calculateUnitPrice } from "../pack-detector";
 import { parsePdpHtml } from "../pdp";
+import { parseVariantSpec } from "../variant-spec";
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -153,6 +154,46 @@ function parsePrice(text: string): number {
 }
 
 /**
+ * Parse Pinkblue's grouped-product variant table. Each `<tbody id="id_N">` row
+ * carries a Variant Name, a "Package Content" cell with the composition
+ * (e.g. "1 x 15 g Powder + 1 x 13.1 g (10.5mL) Liquid") and its own special /
+ * regular price. Without this, the scraper only saw the listing's headline
+ * (cheapest) price and matched the wrong sub-variant.
+ */
+function parsePinkblueVariants($: cheerio.CheerioAPI): ProductVariant[] {
+  const variants: ProductVariant[] = [];
+  $("tbody[id^='id_']").each((_, tb) => {
+    const $tb = $(tb);
+    const vName = $tb.find('td[data-th="Variant Name"] .product-item-name').text().trim();
+    const content = $tb.find('td[data-th="Package Content"] .product-item-name').text().trim();
+    if (!vName && !content) return;
+
+    const specialText = $tb.find(".special-price .price").first().text().trim();
+    const oldText = $tb.find(".old-price .price").first().text().trim();
+    const anyText = $tb.find(".price").first().text().trim();
+    const price = parsePrice(specialText) || parsePrice(anyText);
+    const mrp = parsePrice(oldText) || price;
+    if (price <= 0) return;
+
+    const label = `${vName} ${content}`.trim();
+    // Pack count comes from the variant NAME ("Pack of 5"); the composition
+    // content ("1 x 15 g Powder") is a size, not a pack — detecting on it would
+    // misread "15 g" as a 15-pack. The grams live in variantSpec instead.
+    const packSize = detectPackSize(vName, "", "");
+    variants.push({
+      name: vName || content,
+      sku: "",
+      price,
+      mrp,
+      packSize,
+      unitPrice: calculateUnitPrice(price, packSize),
+      variantSpec: parseVariantSpec(label),
+    });
+  });
+  return variants;
+}
+
+/**
  * Fetch a single Pinkblue PDP. Magento 2 server-rendered page.
  * JSON-LD Product block first; Magento selectors fill in description,
  * SKU and specs table when JSON-LD is thin.
@@ -200,6 +241,7 @@ export async function fetchPinkblueProduct(url: string): Promise<ProductData | n
     if (price <= 0) return null;
 
     const packSize = detectPackSize(name, `${description} ${packaging}`, url);
+    const variants = parsePinkblueVariants($);
     return {
       name,
       url,
@@ -214,6 +256,8 @@ export async function fetchPinkblueProduct(url: string): Promise<ProductData | n
       packSize,
       unitPrice: calculateUnitPrice(price, packSize),
       sku: sku || undefined,
+      variants: variants.length ? variants : undefined,
+      variantSpec: parseVariantSpec(`${name} ${packaging} ${description}`),
     };
   } catch {
     return null;
