@@ -26,6 +26,12 @@ class Attributes:
 
 
 _MODEL_RE = re.compile(r"\b([a-z]{1,5}-?\d{2,5}[a-z]?)\b", re.IGNORECASE)
+# USP suture gauge, e.g. "#2-0", "2-0", "5/0" — a hard size discriminator
+# (Meril Filasilk #2-0 ≠ #5-0). Normalized to "<n>-0".
+_SUTURE_RE = re.compile(r"#?\b(\d{1,2})\s*[-/]\s*0\b")
+# Integer dimension pair, e.g. archwire "17 x 25" (the decimal form ".017 x .025"
+# is handled by _DIM_PAIR_RE). Normalized to "<a>x<b>".
+_DIM_INT_RE = re.compile(r"\b(\d{2})\s*[x×*]\s*(\d{2})\b", re.IGNORECASE)  # noqa: RUF001
 _ISO_RE = re.compile(r"(?:#|no\.|size|iso)\s*(\d{2,3})\b", re.IGNORECASE)
 _SHADE_RE = re.compile(r"\b([A-D][1-4](?:\.5)?|BW|UD)\b")
 _CONC_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
@@ -87,6 +93,8 @@ def extract_attributes(name: str) -> Attributes:
         pack_count = int(pm.group(1) or pm.group(2))
 
     model_codes = [m.group(1).lower() for m in _MODEL_RE.finditer(name)]
+    model_codes += [f"{m.group(1)}-0" for m in _SUTURE_RE.finditer(name)]
+    model_codes += [f"{m.group(1)}x{m.group(2)}" for m in _DIM_INT_RE.finditer(name)]
 
     viscosity: str | None = None
     for v in _VISCOSITY_VARIANTS:

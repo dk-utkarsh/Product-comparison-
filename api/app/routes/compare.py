@@ -13,11 +13,15 @@ UI hits POST /compare for one row or POST /compare-batch for an xlsx.
 from __future__ import annotations
 
 import asyncio
+import csv
 import io
+import json
 import re
+from collections.abc import AsyncIterator
 
 import openpyxl
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app import pipeline, registry
@@ -25,6 +29,8 @@ from app.db import Database, get_db
 from app.matching.llm_judge import JudgeBudget
 from app.matching.query_builder import ProductContext, extract_smart_queries
 from app.matching.score import Verdict
+from app.matching.attributes import extract_attributes
+from app.matching.gates import gate_check
 from app.matching.normalize import normalize_for_match
 from app.matching.structured import ProductRecord
 from app.matching.tokens import distinguishing_tokens, fuzz_ratio
@@ -119,11 +125,55 @@ def _in_price_band(
     return (1.0 / max_ratio) <= ratio <= max_ratio
 
 
+# Specialization markers — a candidate carrying one of these that the user's
+# input does NOT is a more specific sub-variant (Capsules / Extra / Pack-of-N /
+# refill / combo / Set-of-N / mini / drills). When the input is ambiguous we
+# should prefer the plain base product over such a specialization.
+_QUALIFIER_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\bextra\b", re.I),
+    re.compile(r"\bcapsules?\b", re.I),
+    re.compile(r"\brefills?\b", re.I),
+    re.compile(r"\bcombo\b", re.I),
+    re.compile(r"\bpack\s+of\s+\d+\b", re.I),
+    re.compile(r"\bset\s+of\s+\d+\b", re.I),
+    re.compile(r"\b(mini|trial|sample)\b", re.I),
+    re.compile(r"\bonly\b", re.I),
+    re.compile(r"\bdrills?\b", re.I),
+)
+
+
+def _code_match_bonus(input_name: str, cand_name: str) -> float:
+    """Ranking boost for a DK candidate that shares a distinctive model/size code
+    with the input (suture '#2-0', model 'DL-300', dims '17x25') — so the
+    exact-size product wins over a size-less sibling (e.g. '…Silk Suture Reels')."""
+    in_codes = set(extract_attributes(normalize_for_match(input_name)).model_codes)
+    if not in_codes:
+        return 0.0
+    cand_codes = set(extract_attributes(normalize_for_match(cand_name)).model_codes)
+    return 0.25 if in_codes & cand_codes else 0.0
+
+
+def _qualifier_penalty(input_name: str, cand_name: str) -> float:
+    """Ranking demotion for a candidate that introduces specialization markers
+    absent from the user's input — so "GC Gold Label 9" prefers the base
+    Posterior Restorative over "...Extra Capsules Pack Of 30". Only relative
+    ranking is affected; the displayed score/verdict is unchanged."""
+    pen = 0.0
+    for rx in _QUALIFIER_PATTERNS:
+        if rx.search(cand_name) and not rx.search(input_name):
+            pen += 0.12
+    return min(pen, 0.30)
+
+
 def _best_match(
-    dk_name: str, candidates: list[CompetitorProduct], dk_price: float | None
+    dk_name: str,
+    candidates: list[CompetitorProduct],
+    dk_price: float | None,
+    qualifier_ref: str | None = None,
 ) -> CompetitorMatch | None:
     """Pre-filter, batch-triage, pick the highest-scoring confirmed/possible
-    candidate that also lies within the DK price band."""
+    candidate that also lies within the DK price band. `qualifier_ref` (the
+    user's original input) demotes more-specific sub-variants when ambiguous."""
     if not candidates:
         return None
 
@@ -134,6 +184,7 @@ def _best_match(
 
     results = triage_batch(dk_name, [c.name for c in pool])
     max_ratio = get_settings().price_band_max_ratio
+    ref = qualifier_ref or dk_name
 
     best_score = -1.0
     best_cand: CompetitorProduct | None = None
@@ -146,8 +197,13 @@ def _best_match(
             # different product (a part vs the machine, a kit vs a single
             # instrument, etc.). Drop it.
             continue
-        if r.score > best_score:
-            best_score = r.score
+        eff = (
+            r.score
+            - _qualifier_penalty(ref, cand.name)
+            + _code_match_bonus(ref, cand.name)
+        )
+        if eff > best_score:
+            best_score = eff
             best_cand = cand
             best_result = r
 
@@ -256,67 +312,260 @@ def _paren_code(name: str) -> str:
     return re.sub(r"\s+", " ", codes[-1]).strip().lower()
 
 
-def _pick_dk_child(input_name: str, variants: list[dict]) -> dict | None:
+def _word_tokens(s: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", s.lower()))
+
+
+def _pick_dk_child(
+    input_name: str, parent_name: str, variants: list[dict]
+) -> dict | None:
     """For a grouped Dentalkart product, resolve the input/xlsx name to the
-    specific child sub-variant: filter by config (tier/torque/Extra), then by
-    exact model code, then closest name. Returns None when the input pins
-    neither a config nor a model code (keep the grouped listing as-is)."""
+    specific child sub-variant: by config (tier/torque/Extra), then exact model
+    code, then — when neither applies — by name when the input clearly names a
+    child (e.g. 'Size 19'). Returns None when the input doesn't pin a child
+    (keep the grouped listing as-is)."""
+    if not variants:
+        return None
     in_kit, in_torque, in_extra = config_from_text(input_name)
     in_code = _paren_code(input_name)
     # The shared parent code (e.g. "JULL-DENT 223") isn't a per-variant
     # discriminator; treat a code as useful only if it differs across children.
     distinct_codes = {_paren_code(str(v.get("name", ""))) for v in variants}
     use_code = bool(in_code) and len(distinct_codes - {""}) > 1
-    if not (in_kit or in_torque or in_extra or use_code):
-        return None
-
     in_norm = normalize_for_match(input_name)
-    compatible: list[dict] = []
-    for v in variants:
-        vs = VariantSpec.from_dict(v.get("variantSpec"))
-        vk = vs.kit_tier if vs else None
-        vt = vs.torque if vs else None
-        ve = vs.is_extra if vs else False
-        if in_kit and vk and vk != in_kit:
-            continue
-        if in_torque and vt and vt != in_torque:
-            continue
-        if in_extra != ve and (in_extra or ve):
-            continue
-        compatible.append(v)
-    if not compatible:
+
+    def best_by_name(pool: list[dict]) -> dict:
+        return max(
+            pool,
+            key=lambda v: fuzz_ratio(in_norm, normalize_for_match(str(v.get("name", "")))),
+        )
+
+    if in_kit or in_torque or in_extra or use_code:
+        compatible: list[dict] = []
+        for v in variants:
+            vs = VariantSpec.from_dict(v.get("variantSpec"))
+            vk = vs.kit_tier if vs else None
+            vt = vs.torque if vs else None
+            ve = vs.is_extra if vs else False
+            if in_kit and vk and vk != in_kit:
+                continue
+            if in_torque and vt and vt != in_torque:
+                continue
+            if in_extra != ve and (in_extra or ve):
+                continue
+            compatible.append(v)
+        if not compatible:
+            return None
+        # Exact model-code match wins outright (KGF 8 vs KGF 9 vs KO 1/2).
+        if use_code:
+            coded = [v for v in compatible if _paren_code(str(v.get("name", ""))) == in_code]
+            if coded:
+                compatible = coded
+        return best_by_name(compatible)
+
+    # No config/code signal: resolve by name only when the input UNIQUELY names a
+    # child. Compare against the tokens the input adds beyond the parent (e.g.
+    # "Size 19" → {size,19,…}); the child sharing the most of them must be a
+    # strict winner. Otherwise the input is ambiguous → keep the parent.
+    extra = _word_tokens(input_name) - _word_tokens(parent_name)
+    if not extra:
         return None
-
-    # Exact model-code match wins outright (KGF 8 vs KGF 9 vs KO 1/2).
-    if use_code:
-        coded = [v for v in compatible if _paren_code(str(v.get("name", ""))) == in_code]
-        if coded:
-            compatible = coded
-
-    return max(
-        compatible,
-        key=lambda v: fuzz_ratio(in_norm, normalize_for_match(str(v.get("name", "")))),
+    scored = sorted(
+        variants,
+        key=lambda v: len(_word_tokens(str(v.get("name", ""))) & extra),
+        reverse=True,
     )
+    top = len(_word_tokens(str(scored[0].get("name", ""))) & extra)
+    second = len(_word_tokens(str(scored[1].get("name", ""))) & extra) if len(scored) > 1 else 0
+    return scored[0] if top > 0 and top > second else None
+
+
+_CODE_HAS_DIGIT = re.compile(r"\d")
+_CODE_NONCODE = re.compile(
+    r"\b(pack|set|sheets?|of|coarse|medium|fine|regular|assorted|"
+    r"cm|mm|ml|mg|kg|gm?|microns?|µ|inch|inches|oz)\b",
+    re.I,
+)
+
+
+def _looks_like_code(s: str) -> bool:
+    """True for a SKU/serial-ish parenthetical (e.g. '5527/002/E', 'KGF 9',
+    'S5083') — has a digit, short, and not a descriptor/measurement
+    ('11.5cm', 'Pack of 300 sheets', 'Coarse/Medium')."""
+    return (
+        bool(s)
+        and len(s) <= 24
+        and _CODE_HAS_DIGIT.search(s) is not None
+        and _CODE_NONCODE.search(s) is None
+    )
+
+
+def _build_dk_result(
+    rich: CompetitorProduct, child: dict | None, input_name: str
+) -> tuple[CompetitorMatch, ProductRecord]:
+    """Build the Dentalkart self-match (CompetitorMatch + anchor ProductRecord)
+    from a resolved product (`rich`) or one of its grouped children. Scores the
+    match against the input name so an exact resolution reads confirmed/high."""
+    if child is not None:
+        name = str(child.get("name") or rich.name)
+        price = float(child.get("price") or 0)
+        in_stock = bool(child.get("inStock", rich.in_stock))
+        pack_size = int(child.get("packSize") or 1)
+        unit_price = float(child.get("unitPrice") or price)
+        vspec = VariantSpec.from_dict(child.get("variantSpec"))
+        image = str(child.get("image") or rich.image)
+    else:
+        name, price, in_stock = rich.name, rich.price, rich.in_stock
+        pack_size = rich.pack_size
+        unit_price = rich.unit_price or rich.price
+        vspec = VariantSpec.from_dict(rich.variant_spec)
+        image = rich.image
+
+    tri = triage_batch(input_name, [name])
+    dk_match = CompetitorMatch(
+        competitor_id="dentalkart", competitor_name="Dentalkart",
+        candidates_seen=0, matched_name=name, matched_url=rich.url,
+        matched_price=price, matched_image=image, in_stock=in_stock,
+        verdict=tri[0].verdict.value if tri else None,
+        score=tri[0].score if tri else None,
+        cosine=tri[0].cosine if tri else None, reasons=[],
+    )
+    dk_record = ProductRecord(
+        name=name, url=rich.url, description=rich.description,
+        packaging=rich.packaging, price=price, mrp=rich.mrp,
+        pack_size=pack_size, unit_price=unit_price, sku=rich.sku,
+        source="dentalkart", variant_spec=vspec,
+    )
+    return dk_match, dk_record
+
+
+async def _resolve_by_code(
+    dk_raw: list[CompetitorProduct], in_code: str, input_name: str
+) -> tuple[CompetitorMatch, ProductRecord] | None:
+    """Find the Dentalkart product (or grouped child) carrying the EXACT serial
+    code the input names. Fetches the most plausible candidates' PDPs in
+    parallel — codes live on the PDP / children, not the search card."""
+    ranked = sorted(
+        dk_raw,
+        key=lambda c: fuzz_ratio(
+            normalize_for_match(input_name), normalize_for_match(c.name)
+        ),
+        reverse=True,
+    )[:8]
+    pdps = await asyncio.gather(
+        *(fetch_product("dentalkart", c.url) for c in ranked),
+        return_exceptions=True,
+    )
+    for cand, pdp in zip(ranked, pdps, strict=True):
+        rich = pdp if isinstance(pdp, CompetitorProduct) else cand
+        children = rich.variants or []
+        codes = [_paren_code(str(ch.get("name", ""))) for ch in children]
+        # Only pick a child by code when children have DISTINCT codes. If they
+        # all share one code (the parent SKU, e.g. "JULL-DENT 223"), the code
+        # doesn't discriminate — defer to config/name resolution instead.
+        if len({c for c in codes if c}) > 1:
+            for ch, code in zip(children, codes, strict=True):
+                if code == in_code:
+                    return _build_dk_result(rich, ch, input_name)
+        # A simple product whose own name carries the exact code.
+        if not children and _paren_code(rich.name) == in_code:
+            return _build_dk_result(rich, None, input_name)
+    return None
+
+
+async def _resolve_by_child_name(
+    dk_raw: list[CompetitorProduct], input_name: str, current_fuzz: float
+) -> tuple[CompetitorMatch, ProductRecord] | None:
+    """The input may be a CHILD name while a DIFFERENT product out-ranked the
+    correct grouped parent (e.g. "Julldent Implant Drivers and Hex Drivers"
+    beats "Julldent Prosthetic Hex Drivers - Long", whose child IS the input).
+    Scan the top candidates' children for a near-exact name match to the input
+    and adopt it when it clearly beats the current (weak) resolution."""
+    in_norm = normalize_for_match(input_name)
+    ranked = sorted(
+        dk_raw,
+        key=lambda c: fuzz_ratio(in_norm, normalize_for_match(c.name)),
+        reverse=True,
+    )[:8]
+    pdps = await asyncio.gather(
+        *(fetch_product("dentalkart", c.url) for c in ranked),
+        return_exceptions=True,
+    )
+    best_f = max(current_fuzz, 0.9)  # require near-exact AND better than current
+    best: tuple[CompetitorProduct, dict] | None = None
+    for cand, pdp in zip(ranked, pdps, strict=True):
+        rich = pdp if isinstance(pdp, CompetitorProduct) else cand
+        for ch in rich.variants or []:
+            cn = normalize_for_match(str(ch.get("name", "")))
+            # Respect hard gates (e.g. model-code mismatch): don't adopt a child
+            # whose code conflicts with the input (Meril #2-0 must not take #3-0).
+            if not gate_check(in_norm, cn).passed:
+                continue
+            f = fuzz_ratio(in_norm, cn)
+            if f > best_f:
+                best_f, best = f, (rich, ch)
+    return _build_dk_result(best[0], best[1], input_name) if best else None
+
+
+async def _pooled_dk_search(name: str) -> list[CompetitorProduct]:
+    """DK's on-site search misses the grouped parent for a full child-name query
+    but finds it for the config/size-stripped base name (e.g. the Orringer
+    retractor parent only surfaces for 'Julldent Orringer Retractor', not the
+    full child name). So fire the raw name AND the base name in parallel and pool
+    by URL. (Broad progressive queries were tried too but added noise on the
+    UNANCHORED self-match — 'GC Gold Label 9' pulling in 'GC Gold Label Hybrid'.
+    Competitors keep the progressive queries because they're matched against the
+    DK anchor with strict gates, which filters that noise out.)"""
+    queries = [q for q in dict.fromkeys([name, base_name(name)]) if q and len(q) >= 3]
+    results = await asyncio.gather(
+        *(scrape_competitor("dentalkart", q) for q in queries),
+        return_exceptions=True,
+    )
+    # Dedup by URL, keeping the first (most-specific-query) occurrence.
+    pooled: dict[str, CompetitorProduct] = {}
+    for r in results:
+        if isinstance(r, list):
+            for c in r:
+                if c.url and c.url not in pooled:
+                    pooled[c.url] = c
+    return list(pooled.values())
 
 
 async def _resolve_dk(row: DkRow) -> tuple[CompetitorMatch | None, ProductRecord | None]:
     """Search dentalkart.com, pick the best self-match, enrich via PDP."""
-    dk_raw = await scrape_competitor("dentalkart", row.name)
-    # A config-specific child name (e.g. "...Premium...Torque Ratchet") may not
-    # surface the grouped parent, which DK indexes under the base name. Search
-    # the base name too and pool, so the parent is in the running.
-    base = base_name(row.name)
-    rank_name = row.name
-    if base and base.lower() != row.name.lower():
-        extra = await scrape_competitor("dentalkart", base)
-        seen_urls = {c.url for c in dk_raw}
-        dk_raw = dk_raw + [c for c in extra if c.url not in seen_urls]
-        rank_name = base  # rank candidates against the base so the parent wins
-    dk_match = _best_match(rank_name, dk_raw, None)
+    dk_raw = await _pooled_dk_search(row.name)
+    if not dk_raw:
+        return None, None
+
+    # Exact serial/model-code wins: when the input names a code (e.g.
+    # "(5527/002/E)", "(KGF 9)"), the right product is the one carrying that
+    # EXACT code — even if a different variant name-matches better (e.g. the
+    # standalone "70 Microns - Red" outscores the grouped "Blue & Red" parent
+    # whose name lacks "70 Microns"). Resolve by code first; fall through if no
+    # exact match is found.
+    in_code = _paren_code(row.name)
+    if dk_raw and _looks_like_code(in_code):
+        coded = await _resolve_by_code(dk_raw, in_code, row.name)
+        if coded is not None:
+            return coded
+
+    dk_match = _best_match(row.name, dk_raw, None, qualifier_ref=row.name)
     if dk_match is None:
         return None, None
     dk_match.competitor_id = "dentalkart"
     dk_match.competitor_name = "Dentalkart"
+
+    # When the top product is only a weak name match to the input, the input may
+    # actually name a CHILD of a lower-ranked grouped product. Look for a
+    # near-exact child across the top candidates before committing.
+    cur_fuzz = fuzz_ratio(
+        normalize_for_match(row.name), normalize_for_match(dk_match.matched_name or "")
+    )
+    if cur_fuzz < 0.9:
+        better = await _resolve_by_child_name(dk_raw, row.name, cur_fuzz)
+        if better is not None:
+            return better
+
     pdp = await fetch_product("dentalkart", dk_match.matched_url or "")
     search_cand = next((c for c in dk_raw if c.url == dk_match.matched_url), None)
     src = pdp or search_cand
@@ -327,10 +576,16 @@ async def _resolve_dk(row: DkRow) -> tuple[CompetitorMatch | None, ProductRecord
     # Grouped product → resolve to the exact child the input names, showing that
     # child's full name + its real price + stock (the parent listing collapses
     # every variant to one wrong price, e.g. Julldent → ₹1995 'Box Only').
-    child = _pick_dk_child(row.name, pdp.variants) if pdp and pdp.variants else None
+    child = (
+        _pick_dk_child(row.name, dk_match.matched_name or "", pdp.variants)
+        if pdp and pdp.variants
+        else None
+    )
     if child is not None:
         dk_match.matched_name = str(child.get("name") or dk_match.matched_name)
         dk_match.matched_price = float(child.get("price") or dk_match.matched_price or 0)
+        if child.get("image"):
+            dk_match.matched_image = str(child["image"])
         if "inStock" in child:
             dk_match.in_stock = bool(child["inStock"])
         dk_record.name = dk_match.matched_name
@@ -338,6 +593,14 @@ async def _resolve_dk(row: DkRow) -> tuple[CompetitorMatch | None, ProductRecord
         dk_record.pack_size = int(child.get("packSize") or 1)
         dk_record.unit_price = float(child.get("unitPrice") or dk_record.price)
         dk_record.variant_spec = VariantSpec.from_dict(child.get("variantSpec"))
+        # The self-match score came from the grouped PARENT name (which lacks the
+        # child's descriptors), so it reads low/"possible". Re-score against the
+        # resolved child — an exact child match should read confirmed/high.
+        rescored = triage_batch(row.name, [dk_match.matched_name])
+        if rescored:
+            dk_match.verdict = rescored[0].verdict.value
+            dk_match.score = rescored[0].score
+            dk_match.cosine = rescored[0].cosine
         return dk_match, dk_record
 
     # Dentalkart is the source of truth. Use the listing price and the grouped
@@ -473,6 +736,55 @@ def _parse_dk_xlsx(content: bytes) -> list[DkRow]:
     return rows
 
 
+def _name_column(headers_lc: list[str]) -> int | None:
+    return next((i for i, h in enumerate(headers_lc) if h in _NAME_HEADERS), None)
+
+
+def _parse_dk_csv(content: bytes) -> list[DkRow]:
+    """Pull the product-name column out of a CSV. Same column rules as the xlsx
+    parser; a single-column file with no recognized header is treated as a bare
+    list of product names (first row included)."""
+    text = content.decode("utf-8-sig", errors="replace")  # tolerate a BOM
+    all_rows = [r for r in csv.reader(io.StringIO(text)) if any((c or "").strip() for c in r)]
+    if not all_rows:
+        return []
+
+    headers_lc = [str(h).strip().lower() for h in all_rows[0]]
+    n = _name_column(headers_lc)
+    if n is not None:
+        data = all_rows[1:]
+    elif len(headers_lc) == 1:
+        n, data = 0, all_rows  # bare single-column list — no header to skip
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"no product-name column found. Looked for one of "
+                f"{sorted(_NAME_HEADERS)}; got headers {headers_lc}"
+            ),
+        )
+
+    rows: list[DkRow] = []
+    for r in data:
+        if n < len(r):
+            name = str(r[n]).strip()
+            if name:
+                rows.append(DkRow(name=name))
+    return rows
+
+
+def _parse_dk_upload(filename: str, content: bytes) -> list[DkRow]:
+    """Parse an uploaded product list as CSV or xlsx. Routes by file extension,
+    falling back to the magic bytes (xlsx is a ZIP, starts with 'PK')."""
+    name = (filename or "").lower()
+    if name.endswith(".csv"):
+        return _parse_dk_csv(content)
+    if name.endswith((".xlsx", ".xlsm")) or content[:2] == b"PK":
+        return _parse_dk_xlsx(content)
+    # Unknown extension and not a zip → assume delimited text.
+    return _parse_dk_csv(content)
+
+
 @router.post("/batch", response_model=CompareBatchResponse)
 async def compare_batch(
     file: UploadFile = File(...),
@@ -486,9 +798,9 @@ async def compare_batch(
     sites. Default 2 in-flight rows.
     """
     content = await file.read()
-    rows = _parse_dk_xlsx(content)
+    rows = _parse_dk_upload(file.filename or "", content)
     if not rows:
-        raise HTTPException(status_code=400, detail="no usable rows in xlsx")
+        raise HTTPException(status_code=400, detail="no usable rows in the uploaded file")
 
     db: Database | None
     try:
@@ -508,3 +820,54 @@ async def compare_batch(
         if db is not None:
             await db.close()
     return CompareBatchResponse(total=len(results), results=results)
+
+
+@router.post("/batch-stream")
+async def compare_batch_stream(
+    file: UploadFile = File(...),
+    concurrency: int = 2,
+) -> StreamingResponse:
+    """Same as /batch, but streams NDJSON progress so the UI can show
+    'searched X of N' live. Emits one line per event:
+      {"type":"start","total":N}
+      {"type":"result","index":i,"done":k,"total":N,"result":{...}}  (completion order)
+      {"type":"done","total":N}
+    """
+    content = await file.read()
+    rows = _parse_dk_upload(file.filename or "", content)
+    if not rows:
+        raise HTTPException(status_code=400, detail="no usable rows in the uploaded file")
+
+    async def stream() -> AsyncIterator[str]:
+        yield json.dumps({"type": "start", "total": len(rows)}) + "\n"
+
+        db: Database | None
+        try:
+            db = await get_db()
+        except Exception:  # run stateless without a DB
+            db = None
+        budget = JudgeBudget(get_settings().llm_judge_budget_per_run)
+        sem = asyncio.Semaphore(max(1, concurrency))
+
+        async def gated(i: int, r: DkRow) -> tuple[int, CompareResult]:
+            async with sem:
+                return i, await _compare_one(r, db, budget)
+
+        tasks = [asyncio.create_task(gated(i, r)) for i, r in enumerate(rows)]
+        done = 0
+        try:
+            for fut in asyncio.as_completed(tasks):
+                i, res = await fut
+                done += 1
+                yield json.dumps({
+                    "type": "result", "index": i, "done": done,
+                    "total": len(rows), "result": res.model_dump(),
+                }) + "\n"
+        finally:
+            for t in tasks:
+                t.cancel()
+            if db is not None:
+                await db.close()
+        yield json.dumps({"type": "done", "total": len(rows)}) + "\n"
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson")

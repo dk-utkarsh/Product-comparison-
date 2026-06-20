@@ -383,9 +383,8 @@
     }
     .cell-name {
       font-size: 11px; color: var(--ink-mute); line-height: 1.4;
-      overflow: hidden; text-overflow: ellipsis;
-      display: -webkit-box; -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical; margin-top: 3px; max-width: 180px;
+      margin-top: 3px; max-width: 240px;
+      overflow-wrap: anywhere; word-break: break-word;
     }
     .cell-meta {
       display: flex; gap: 8px; align-items: center;
@@ -508,7 +507,7 @@
     <p class="hero-eyebrow">Internal tool · live</p>
     <h1>Watch the market against your catalog, in real time.</h1>
     <p class="lede">
-      Drop an Excel of products or search a single SKU. We query dentalkart.com plus Pinkblue,
+      Drop an Excel or CSV of products or search a single SKU. We query dentalkart.com plus Pinkblue,
       Oralkart and Dentmark in parallel, run every candidate through a sentence-transformer matcher,
       and show you where each product is cheaper or pricier — row by row.
     </p>
@@ -541,7 +540,7 @@
       <div class="card">
         <p class="section-label"><span class="num">2</span>Batch upload</p>
         <p class="helper-text">
-          Excel <strong>.xlsx</strong> with a <strong>Product Name</strong> column. Other columns are ignored.
+          Excel <strong>.xlsx</strong> or <strong>.csv</strong> with a <strong>Product Name</strong> column. Other columns are ignored.
         </p>
         <div id="dropZone" class="dropzone">
           <div class="dz-icon">
@@ -551,7 +550,7 @@
           </div>
           <p class="dz-title">Drop your product list</p>
           <p class="dz-sub">or click to browse</p>
-          <input type="file" id="fileInput" accept=".xlsx" style="display:none" />
+          <input type="file" id="fileInput" accept=".xlsx,.csv" style="display:none" />
         </div>
         <div class="controls-row">
           <span>Rows in parallel</span>
@@ -578,6 +577,10 @@
               <div class="stat">
                 <span class="stat-label">Elapsed</span>
                 <span class="stat-value" id="lt-elapsed">0s</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Searched</span>
+                <span class="stat-value" id="lt-progress">—</span>
               </div>
               <div class="stat">
                 <span class="stat-label">Mode</span>
@@ -772,8 +775,9 @@ input.addEventListener("change", () => {
 async function runBatch(file) {
   const conc = parseInt($("concurrency").value, 10) || 2;
   $("lt-conc").textContent = conc;
+  $("lt-progress").textContent = "—";
   logLine(`runBatch ${file.name} (${file.size} bytes) concurrency=${conc}`);
-  setRunning("batch", file.name.replace(/\.xlsx$/i, ""));
+  setRunning("batch", file.name.replace(/\.(xlsx|xlsm|csv)$/i, ""));
 
   currentAbort = new AbortController();
   const fd = new FormData();
@@ -781,7 +785,7 @@ async function runBatch(file) {
 
   let res;
   try {
-    res = await fetch(`/compare/batch?concurrency=${conc}`, {
+    res = await fetch(`/compare/batch-stream?concurrency=${conc}`, {
       method: "POST", body: fd, signal: currentAbort.signal,
     });
   } catch (e) {
@@ -790,7 +794,53 @@ async function runBatch(file) {
     $("status").innerHTML = `<span class="status-msg err">Network error: ${enc(e.message)}</span>`;
     return;
   }
-  await handleResponse(res, "batch");
+  if (!res.ok) {
+    setIdle();
+    const err = await res.json().catch(() => ({}));
+    $("status").innerHTML = `<span class="status-msg err">Error: ${enc(err.detail || res.statusText)}</span>`;
+    return;
+  }
+
+  // Read NDJSON progress stream: {start} … {result} … {done}
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "", total = 0;
+  const byIndex = [];
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        let evt;
+        try { evt = JSON.parse(line); } catch { continue; }
+        if (evt.type === "start") {
+          total = evt.total;
+          $("lt-progress").textContent = `0 / ${total}`;
+        } else if (evt.type === "result") {
+          byIndex[evt.index] = evt.result;
+          $("lt-progress").textContent = `${evt.done} / ${evt.total}`;
+        }
+      }
+    }
+  } catch (e) {
+    if (e.name === "AbortError") return;
+    setIdle();
+    $("status").innerHTML = `<span class="status-msg err">Stream error: ${enc(e.message)}</span>`;
+    return;
+  }
+
+  const results = byIndex.filter((r) => r != null);
+  const elapsed = stopTimer();
+  stopFacts();
+  $("loading-section").style.display = "none";
+  $("upload-section").style.display = "block";
+  $("status").innerHTML = `<span class="status-msg ok">Done — searched ${results.length} ${results.length === 1 ? "product" : "products"} in ${elapsed}s.</span>`;
+  renderResults({ total: results.length, results }, elapsed);
 }
 
 /* ── Single quick search ─────────────── */
@@ -804,6 +854,7 @@ async function runQuick() {
     return;
   }
   $("lt-conc").textContent = "—";
+  $("lt-progress").textContent = "—";
   logLine(`runQuick ${JSON.stringify(name)}`);
   setRunning("single", name);
 

@@ -9,6 +9,7 @@ export interface ProductVariant {
   unitPrice: number;
   variantSpec?: VariantSpec; // parsed size/composition for this specific variant
   inStock?: boolean; // per-variant stock; absent = unknown/in-stock
+  image?: string; // per-variant image URL (grouped children each have their own)
 }
 
 export interface ProductData {

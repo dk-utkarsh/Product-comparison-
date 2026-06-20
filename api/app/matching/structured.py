@@ -7,6 +7,7 @@ go on to the LLM judge; the others are final.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -72,6 +73,16 @@ _VARIANT_FIELDS: tuple[str, ...] = (
 )
 
 
+_STRONG_CODE_RE = re.compile(r"[a-z]{1,4}-?\d{3,}[a-z]{0,2}")
+
+
+def _main_model_codes(name: str) -> set[str]:
+    """Strong manufacturer model codes in the MAIN name (parenthetical DK SKUs
+    dropped) — letter prefix + 3+ digits, e.g. 'dl-300', 's6000'."""
+    main = re.sub(r"\([^)]*\)", " ", name).lower()
+    return {m.group(0) for m in _STRONG_CODE_RE.finditer(main)}
+
+
 def _brand_conflict(s_attrs: Attributes, c_attrs: Attributes,
                     s_name: str, c_name: str) -> bool:
     """First-token brands differ AND neither brand appears anywhere in the
@@ -102,6 +113,16 @@ def structured_match(search: ProductRecord, candidate: ProductRecord) -> Structu
         return StructuredResult(
             StructuredVerdict.REJECTED, MatchFeatures(brand_match=False),
             [f"brand conflict: {s_attrs.brand} vs {c_attrs.brand}"])
+
+    # A manufacturer model code in the DK product's MAIN name (e.g. "DL-300",
+    # "S6000" — letter prefix + 3+ digits, NOT a trailing parenthetical DK SKU
+    # like "(S5083)") that's absent from the competitor candidate means a
+    # different model (Upcera DL-300 ≠ "Upcera P2 Plus 3D Intraoral Scanner").
+    s_codes = _main_model_codes(search.name)
+    if s_codes and not any(c in candidate.name.lower() for c in s_codes):
+        return StructuredResult(
+            StructuredVerdict.REJECTED, MatchFeatures(),
+            [f"model code {sorted(s_codes)[0]!r} absent"])
 
     # Sub-variant / composition check. The "Extra" formulation line is a
     # genuinely different product — never match it to the non-Extra line, even

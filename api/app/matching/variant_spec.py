@@ -99,14 +99,28 @@ _CONFIG_WORDS = re.compile(
 
 
 def base_name(name: str) -> str:
-    """Strip configuration words (tier / torque / Extra / set-of-N / drills) to
-    get the grouped product's base name. Dentalkart indexes grouped products
-    under this base, so searching it reliably surfaces the parent even when the
-    input is a specific child name."""
+    """Strip variant specifics (config tier, torque, Extra, set-of-N, sizes,
+    measurements, inline codes) to get the grouped product's base name.
+    Dentalkart indexes grouped products under this base, so searching it
+    reliably surfaces the parent even when the input is a specific child name —
+    e.g. 'Jull-Dent 79C Premium Small Orringer Retractor -40mm' → 'JullDent
+    Orringer Retractor', which DK search resolves to the parent."""
     s = re.sub(r"\bset\s+of\s+\d+\b", " ", name, flags=re.I)
     s = re.sub(r"\bdlc\s+coated\s+drills?\b", " ", s, flags=re.I)
+    # measurements / sizes
+    s = re.sub(
+        r"\b\d+(?:\.\d+)?\s?(?:mm|cm|ml|mg|kg|gm?|microns?|µ|inch|inches|oz|sheets?)\b",
+        " ", s, flags=re.I,
+    )
+    # size descriptors
+    s = re.sub(r"\b(?:small|large|medium|mini|maxi|x-?small|x-?large|xs|xl)\b", " ", s, flags=re.I)
+    # standalone alphanumeric codes (79C, 079C, A1928) — mixed letters+digits
+    s = re.sub(r"\b(?=[a-z0-9]*\d)(?=[a-z0-9]*[a-z])[a-z0-9]{2,7}\b", " ", s, flags=re.I)
     s = _CONFIG_WORDS.sub(" ", s)
     s = re.sub(r"\bwith\b", " ", s, flags=re.I)
+    # collapse an intra-word hyphen in the brand (Jull-Dent → JullDent), which
+    # DK's search tokenizes better than the hyphenated form.
+    s = re.sub(r"(?<=[A-Za-z])-(?=[A-Za-z])", "", s)
     s = re.sub(r"\s{2,}", " ", s).strip(" -")
     return re.sub(r"\s+", " ", s)
 

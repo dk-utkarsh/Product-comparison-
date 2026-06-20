@@ -200,9 +200,20 @@ async def discover(
     if not pool:
         return Cell(None, None, 0.0, [], None, None, len(pooled))
 
+    top = _top_candidates(dk_record.name, pool)
+    # Fetch every top-K PDP concurrently. The per-candidate work below is CPU +
+    # (optional) judge only, so overlapping these often-slow network calls cuts
+    # latency without changing which candidates are evaluated, their order, or
+    # the judge budget consumption order.
+    pdps = await asyncio.gather(
+        *(fetch_product(competitor_id, cand.url) for cand, _ in top),
+        return_exceptions=True,
+    )
+
     best: Cell | None = None
-    for cand, tri in _top_candidates(dk_record.name, pool):
-        pdp = await fetch_product(competitor_id, cand.url)
+    for (cand, tri), pdp in zip(top, pdps, strict=True):
+        if isinstance(pdp, BaseException):
+            pdp = None
         rich = pdp or cand  # thin fallback: search-card data only
         if rich.url in killed:
             # PDP fetch can canonicalize the URL into a killed one.

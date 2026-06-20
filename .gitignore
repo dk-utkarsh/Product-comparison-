@@ -46,3 +46,6 @@ next-env.d.ts
 
 # Local test artifacts (scraped comparison outputs)
 results/
+
+# Local test data (user-pasted product lists)
+sample test file*.csv

@@ -21,6 +21,35 @@ function coreTokens(name: string): Set<string> {
   );
 }
 
+const DK_CDN = "https://r2dkmedia.dentalkart.com";
+const DK_MEDIA_PREFIX = "/media/catalog/product";
+
+/**
+ * Build a working Dentalkart image URL from any form the site emits (relative
+ * path, protocol-relative, legacy images1 host, or a bare r2dkmedia URL). DK
+ * media lives under /media/catalog/product; a path that omits it (e.g.
+ * "/ctlp/i/m/img.jpg" or "https://r2dkmedia…/ctlp/…") returns 404 — the JSON-LD
+ * and RSC child media give exactly those bare paths, which is why many images
+ * rendered as broken/skeleton.
+ */
+function dkImageUrl(raw: string): string {
+  if (!raw) return "";
+  let r = raw.trim();
+  if (r.startsWith("//")) r = `https:${r}`;
+  if (/^https?:\/\//i.test(r)) {
+    r = r.replace(/^https?:\/\/images1\.dentalkart\.com/i, DK_CDN);
+    const m = r.match(/^https?:\/\/r2dkmedia\.dentalkart\.com\/(.*)$/i);
+    if (m && !/^media\/catalog\/product\//i.test(m[1].replace(/^\/+/, ""))) {
+      return `${DK_CDN}${DK_MEDIA_PREFIX}/${m[1].replace(/^\/+/, "")}`;
+    }
+    return r;
+  }
+  const rel = r.replace(/^\/+/, "");
+  return rel.startsWith("media/catalog/product")
+    ? `${DK_CDN}/${rel}`
+    : `${DK_CDN}${DK_MEDIA_PREFIX}/${rel}`;
+}
+
 /**
  * Parse the sub-variants (children) of a Dentalkart GROUPED product out of the
  * Next.js RSC flight payload embedded in the PDP HTML.
@@ -44,59 +73,120 @@ function parseGroupedChildren(html: string, mainName: string): ProductVariant[] 
   }
   if (!flight) return [];
 
-  // A child is a real sibling if it shares the brand (first token) AND at least
-  // one descriptive core token with the parent. Children often carry their OWN
-  // code instead of the parent's (e.g. "(KGF 8)" not "(JULL-DENT 191)") and may
-  // differ in plural ("Knives" vs "Knife"), so a strict overlap ratio wrongly
-  // drops them — while still excluding unrelated recommended products.
-  const brand = mainName.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)[0] || "";
-  const mainCore = new Set(
-    [...coreTokens(mainName)].filter((t) => /^[a-z]{3,}$/.test(t) && t !== brand),
-  );
-  const out: ProductVariant[] = [];
-  const seen = new Set<string>();
-  const childRe =
-    /"is_in_stock":(true|false)[^{}]*?"name":"((?:[^"\\]|\\.)*)","pricing":"\$([0-9a-f]+)","product_id":\d+,"seo":"\$[0-9a-f]+","sku":"([^"]+)"/g;
-  let m: RegExpExecArray | null;
-  while ((m = childRe.exec(flight))) {
-    const inStock = m[1] === "true";
-    let name = "";
+  // The flight is a list of "id:value" rows; product and pricing rows are flat
+  // (values are $refs or primitives — no nested braces). Build an id → text map
+  // so fields can be read order-independently. DK varies the field set across
+  // products (extra action_btn / rating / has_spare_parts …), which broke the
+  // old fixed-order regex.
+  const rows = new Map<string, string>();
+  const rowRe = /(?:^|\n)([0-9a-f]+):/g;
+  const marks: Array<{ id: string; cs: number; ls: number }> = [];
+  let mm: RegExpExecArray | null;
+  while ((mm = rowRe.exec(flight))) marks.push({ id: mm[1], cs: mm.index + mm[0].length, ls: mm.index });
+  for (let i = 0; i < marks.length; i++) {
+    const end = i + 1 < marks.length ? marks[i + 1].ls : flight.length;
+    rows.set(marks[i].id, flight.slice(marks[i].cs, end));
+  }
+
+  const unescape = (s: string): string => {
     try {
-      name = JSON.parse(`"${m[2]}"`);
+      return JSON.parse(`"${s}"`);
     } catch {
-      name = m[2];
+      return s;
     }
-    const priceRef = m[3];
-    const sku = m[4];
-    if (seen.has(sku)) continue;
+  };
+  const nameOf = (row: string): string =>
+    unescape(row.match(/"name":"((?:[^"\\]|\\.)*)"/)?.[1] ?? "");
 
-    // Only keep real siblings of this grouped product (drop related/recommended
-    // simple products that also live in the payload).
-    const toks = coreTokens(name);
-    const hasBrand = brand ? toks.has(brand) : true;
-    let shared = 0;
-    for (const t of mainCore) if (toks.has(t)) shared++;
-    if (!(hasBrand && (mainCore.size === 0 || shared >= 1))) continue;
+  // Per-child image: row has "media":"$ref" → array ["$inner"] → media object
+  // with a "file" path (e.g. "ctlp/s/i/size17.jpg"). Each child has its own.
+  const imageOf = (row: string): string => {
+    const mref = row.match(/"media":"\$([0-9a-f]+)"/)?.[1];
+    if (!mref) return "";
+    const arr = rows.get(mref) ?? "";
+    const inner = arr.match(/\$([0-9a-f]+)/)?.[1];
+    const mediaObj = inner ? rows.get(inner) ?? arr : arr;
+    const file = mediaObj.match(/"file":"((?:[^"\\]|\\.)*)"/)?.[1];
+    return file ? dkImageUrl(unescape(file)) : "";
+  };
 
-    const rowRe = new RegExp(`\\n${priceRef}:\\{[^}]*\\}`);
-    const row = flight.match(rowRe)?.[0] ?? "";
-    const selling = Number(row.match(/"selling_price":(\d+(?:\.\d+)?)/)?.[1] ?? 0);
-    const mrp = Number(row.match(/"price":(\d+(?:\.\d+)?)/)?.[1] ?? 0);
+  const buildFromRow = (row: string): ProductVariant | null => {
+    const name = nameOf(row);
+    const priceRef = row.match(/"pricing":"\$([0-9a-f]+)"/)?.[1];
+    if (!name || !priceRef) return null;
+    const priceRow = rows.get(priceRef) ?? "";
+    const selling = Number(priceRow.match(/"selling_price":(\d+(?:\.\d+)?)/)?.[1] ?? 0);
+    const mrp = Number(priceRow.match(/"price":(\d+(?:\.\d+)?)/)?.[1] ?? 0);
     const price = selling || mrp;
-    if (price <= 0) continue;
-
-    seen.add(sku);
+    if (price <= 0) return null;
+    const inStock = (row.match(/"is_in_stock":(true|false)/)?.[1] ?? "true") === "true";
     const packSize = detectPackSize(name, "", "");
-    out.push({
+    return {
       name,
-      sku,
+      sku: row.match(/"sku":"([^"]+)"/)?.[1] ?? "",
       price,
       mrp: mrp || price,
       packSize,
       unitPrice: calculateUnitPrice(price, packSize),
       variantSpec: parseVariantSpec(name),
       inStock, // carry stock so the matcher can show out-of-stock variants
-    });
+      image: imageOf(row),
+    };
+  };
+
+  // Authoritative child list: a grouped product carries
+  // "child_products":"$REF" → an array row ["$id1","$id2",…] of child rows.
+  // Prefer the object whose name matches the page's main product; else the
+  // first non-empty list.
+  let childIds: string[] = [];
+  const otherLists: string[][] = [];
+  for (const [, row] of rows) {
+    const cpRef = row.match(/"child_products":"\$([0-9a-f]+)"/)?.[1];
+    if (!cpRef) continue;
+    const ids = [...(rows.get(cpRef) ?? "").matchAll(/"\$([0-9a-f]+)"/g)].map((x) => x[1]);
+    if (!ids.length) continue;
+    if (nameOf(row).toLowerCase() === mainName.toLowerCase()) {
+      childIds = ids;
+      break;
+    }
+    otherLists.push(ids);
+  }
+  if (!childIds.length && otherLists.length) childIds = otherLists[0];
+
+  const out: ProductVariant[] = [];
+  const seen = new Set<string>();
+  const push = (v: ProductVariant | null) => {
+    const key = v && (v.sku || v.name);
+    if (v && key && !seen.has(key)) {
+      seen.add(key);
+      out.push(v);
+    }
+  };
+
+  if (childIds.length) {
+    for (const id of childIds) {
+      const row = rows.get(id);
+      if (row) push(buildFromRow(row));
+    }
+    return out;
+  }
+
+  // Fallback (older RSC shape without a resolvable child list): scan product
+  // rows, keep real siblings (brand + ≥1 shared core token with the parent),
+  // and drop the parent itself + unrelated recommended products.
+  const brand = mainName.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)[0] || "";
+  const mainCore = new Set(
+    [...coreTokens(mainName)].filter((t) => /^[a-z]{3,}$/.test(t) && t !== brand),
+  );
+  for (const [, row] of rows) {
+    if (!row.includes('"sku":"') || !row.includes('"pricing":"$')) continue;
+    const v = buildFromRow(row);
+    if (!v || v.name.toLowerCase() === mainName.toLowerCase()) continue;
+    const toks = coreTokens(v.name);
+    const hasBrand = brand ? toks.has(brand) : true;
+    let shared = 0;
+    for (const t of mainCore) if (toks.has(t)) shared++;
+    if (hasBrand && (mainCore.size === 0 || shared >= 1)) push(v);
   }
   return out;
 }
@@ -228,31 +318,9 @@ function mapProduct(p: DentalkartProduct): ProductData {
   // Product URL
   const productUrl = p.url || (p.url_key ? `https://www.dentalkart.com/${p.url_key}` : "");
 
-  // Image URL — the API can return:
-  //   1. Protocol-relative: //images1.dentalkart.com/... (legacy)
-  //   2. Absolute: https://images1.dentalkart.com/... or https://r2dkmedia... (already fine)
-  //   3. Relative media path: /s/5/s5083-1.jpg or /u/n/untitled.jpg (most common now)
-  // Live CDN is r2dkmedia.dentalkart.com and product media lives under /media/catalog/product.
-  const CDN = "https://r2dkmedia.dentalkart.com";
-  const MEDIA_PREFIX = "/media/catalog/product";
-  const rawImage = (p.image_url || p.thumbnail_url || "").trim();
-  let image = "";
-  if (rawImage) {
-    if (/^https?:\/\//i.test(rawImage)) {
-      image = rawImage.replace(/^https?:\/\/images1\.dentalkart\.com/i, CDN);
-    } else if (rawImage.startsWith("//")) {
-      image = rawImage
-        .replace(/^\/\/images1\.dentalkart\.com/i, CDN)
-        .replace(/^\/\//, "https://");
-    } else if (rawImage.startsWith("/")) {
-      // Relative media path — prepend CDN + /media/catalog/product if not already included.
-      image = rawImage.startsWith(MEDIA_PREFIX)
-        ? `${CDN}${rawImage}`
-        : `${CDN}${MEDIA_PREFIX}${rawImage}`;
-    } else {
-      image = `${CDN}${MEDIA_PREFIX}/${rawImage}`;
-    }
-  }
+  // Image URL — API returns relative media paths, protocol-relative or absolute
+  // (incl. bare r2dkmedia paths that 404). dkImageUrl normalizes every case.
+  const image = dkImageUrl(p.image_url || p.thumbnail_url || "");
 
   // Prices
   const price =
@@ -345,7 +413,7 @@ export async function fetchDentalkartProduct(url: string): Promise<ProductData |
     return {
       name: pdp.name,
       url,
-      image: pdp.image,
+      image: dkImageUrl(pdp.image),
       price: pdp.price,
       mrp: pdp.mrp,
       discount:
