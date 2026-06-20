@@ -49,3 +49,6 @@ results/
 
 # Local test data (user-pasted product lists)
 sample test file*.csv
+
+# Generated local catalog index (rebuild via scripts/build_dk_catalog.py)
+api/data/

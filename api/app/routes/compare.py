@@ -618,32 +618,57 @@ async def _resolve_dk(row: DkRow) -> tuple[CompetitorMatch | None, ProductRecord
     return dk_match, dk_record
 
 
+def _dk_has_input_product(input_name: str, dk_record: ProductRecord | None) -> bool:
+    """True when Dentalkart actually carries the INPUT product (not just a
+    different variant). If the input names a distinctive code/size (suture
+    '#2-0', model 'DL-300', dims '17x25') that the DK match doesn't share, DK
+    resolved to something else (or the product is delisted) — so competitors
+    should be matched to the INPUT, not DK's wrong resolution."""
+    if dk_record is None:
+        return False
+    in_codes = set(extract_attributes(normalize_for_match(input_name)).model_codes)
+    if in_codes:
+        dk_codes = set(extract_attributes(normalize_for_match(dk_record.name)).model_codes)
+        if not (in_codes & dk_codes):
+            return False
+    return True
+
+
 async def _compare_one(
     row: DkRow, db: Database | None, budget: JudgeBudget
 ) -> CompareResult:
     dk_match, dk_record = await _resolve_dk(row)
-    if dk_match is None or dk_record is None:
-        # Not on dentalkart.com — report empty cells, don't guess.
-        return CompareResult(
-            dentalkart=row, dentalkart_match=None,
-            competitors=[_empty_cell(cid, cname, 0) for cid, cname in COMPETITORS],
-        )
+
+    # The INPUT is the source of truth for what the user wants. When DK carries
+    # that exact product, anchor on its rich PDP record. When it doesn't
+    # (delisted, or DK resolved to a different variant), match competitors
+    # against the INPUT itself — otherwise a valid competitor result (e.g.
+    # Pinkblue's "Meril Filasilk #2-0", which DK no longer stocks) is blocked by
+    # DK's wrong anchor and the whole row comes back empty.
+    if _dk_has_input_product(row.name, dk_record) and dk_match is not None:
+        ref = dk_record
+        dk_out: CompetitorMatch | None = dk_match
+        dk_price = dk_match.matched_price
+        dk_unit_price = dk_record.unit_price or dk_record.price
+    else:
+        ref = ProductRecord(name=row.name)
+        dk_out = None  # DK doesn't carry the exact input product
+        dk_price = None
+        dk_unit_price = None
 
     product_id: int | None = None
-    if db is not None:
+    if db is not None and dk_out is not None and dk_record is not None:
         try:
             product_id = await registry.upsert_product(db, dk_record)
         except Exception:  # registry is best-effort
             product_id = None
 
     ctx = ProductContext(
-        description=dk_record.description or None,
-        packaging=dk_record.packaging or None,
-        sku=dk_record.sku,
+        description=ref.description or None,
+        packaging=ref.packaging or None,
+        sku=ref.sku,
     )
-    queries = extract_smart_queries(dk_record.name, ctx) or [row.name]
-    dk_price = dk_match.matched_price
-    dk_unit_price = dk_record.unit_price or dk_record.price
+    queries = extract_smart_queries(ref.name, ctx) or [row.name]
 
     async def one_competitor(cid: str, cname: str) -> CompetitorMatch:
         # Phase 2: registry hit -> cheap refresh.
@@ -659,20 +684,21 @@ async def _compare_one(
                 links[0].status == "human_verified"
                 or links[0].verdict in ("confirmed", "variant")
             ):
-                cell = await pipeline.refresh(cid, links[0], dk_record)
+                cell = await pipeline.refresh(cid, links[0], ref)
                 if cell is not None:
-                    return _cell_to_match(cid, cname, cell, dk_price, dk_unit_price, dk_record)
-        # Phase 1: full discovery.
+                    return _cell_to_match(cid, cname, cell, dk_price, dk_unit_price, ref)
+        # Phase 1: full discovery (matched against `ref` — the DK product when DK
+        # carries it, otherwise the user's input).
         cell = await pipeline.discover(
-            cid, queries, dk_record,
+            cid, queries, ref,
             budget=budget, db=db, product_id=product_id, dk_price=dk_price,
         )
-        return _cell_to_match(cid, cname, cell, dk_price, dk_unit_price, dk_record)
+        return _cell_to_match(cid, cname, cell, dk_price, dk_unit_price, ref)
 
     out = list(await asyncio.gather(
         *(one_competitor(cid, cname) for cid, cname in COMPETITORS)
     ))
-    return CompareResult(dentalkart=row, dentalkart_match=dk_match, competitors=out)
+    return CompareResult(dentalkart=row, dentalkart_match=dk_out, competitors=out)
 
 
 @router.post("/single", response_model=CompareResult)

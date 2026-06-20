@@ -138,6 +138,37 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-20 — Competitors matched to the INPUT when DK lacks it + catalog index
+
+**User: "you're too DK-centric — pinkblue HAS this product but you ignore it."**
+Correct. The tool was DK-anchored: `_compare_one` returned ALL-empty cells when
+DK had no match, and competitors were matched against DK's resolved record — so
+when DK delisted/mis-resolved a product, valid competitor results were blocked
+(e.g. Pinkblue's "Meril Filasilk #2-0" @ ₹609 thrown away because DK's anchor was
+a different variant; the model-code gate then rejected 2-0 vs 3-0).
+
+**Fix — input is the source of truth.** New `_dk_has_input_product()`: if the
+input names a distinctive code/size the DK match doesn't share, DK didn't resolve
+the input product. In that case `_compare_one` now matches competitors against
+the INPUT itself (and shows DK as "not carried"), instead of returning empty.
+Baseline 20: confirmed 19 (unchanged), possible 5→9 (+4 competitor matches
+recovered), 0 lost. This makes competitor results first-class, not gated by a
+perfect DK match.
+
+**Local DK catalog index (new infra, `scripts/build_dk_catalog.py` +
+`app/matching/dk_catalog.py`):** crawls the product sitemaps (~8k products),
+embeds slug-names, saves a local npz (gitignored); `search()` does numpy
+nearest-neighbour. Built to recover products DK's on-site search ranks poorly —
+but it surfaced the real finding: **the recall-gap products (Meril #2-0, Syden
+17x25, API No.86, Toboom HP0308D) are NOT in DK's catalog at all** — Meril #2-0's
+page 404s (delisted); Google shows stale/other-brand results. So those aren't
+tool bugs; DK genuinely doesn't carry them. The index is kept as infra (not wired
+into the hot path) for future use.
+
+Caveat: Meril #2-0 specifically is still imperfect — DK delisted the suture but
+still lists a "Reel #2-0" sharing the 2-0 code, which fools the code check; the
+competitor line-match (Filasilk vs Mericron) is also fuzzy. Pathological edge.
+
 ### 2026-06-20 — Model/size-code discriminators + DK-vs-competitor search note
 
 Fixed the two bugs the Google validation surfaced, model-code precision:
