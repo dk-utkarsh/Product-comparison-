@@ -331,7 +331,10 @@ def _pick_dk_child(
     # The shared parent code (e.g. "JULL-DENT 223") isn't a per-variant
     # discriminator; treat a code as useful only if it differs across children.
     distinct_codes = {_paren_code(str(v.get("name", ""))) for v in variants}
-    use_code = bool(in_code) and len(distinct_codes - {""}) > 1
+    # Only a real SKU/serial parenthetical counts as a child discriminator — a
+    # descriptor like "(Pack of 5)" must NOT drill into an arbitrary length child
+    # (Surgident GBR Screw ∅ 1.4mm → keep the base, don't pick "x 3mm").
+    use_code = _looks_like_code(in_code) and len(distinct_codes - {""}) > 1
     in_norm = normalize_for_match(input_name)
 
     def best_by_name(pool: list[dict]) -> dict:
@@ -370,14 +373,23 @@ def _pick_dk_child(
     extra = _word_tokens(input_name) - _word_tokens(parent_name)
     if not extra:
         return None
-    scored = sorted(
-        variants,
-        key=lambda v: len(_word_tokens(str(v.get("name", ""))) & extra),
+    counts = [(v, len(_word_tokens(str(v.get("name", ""))) & extra)) for v in variants]
+    top = max(c for _, c in counts)
+    if top == 0:
+        return None
+    tied = [v for v, c in counts if c == top]
+    if len(tied) == 1:
+        return tied[0]
+    # Several children share the same input tokens — e.g. "#80" matches both the
+    # "#80" child and the "#45-80" range child. Break the tie by name fuzz so the
+    # exact size wins; keep the parent only if there's no strict winner.
+    tied.sort(
+        key=lambda v: fuzz_ratio(in_norm, normalize_for_match(str(v.get("name", "")))),
         reverse=True,
     )
-    top = len(_word_tokens(str(scored[0].get("name", ""))) & extra)
-    second = len(_word_tokens(str(scored[1].get("name", ""))) & extra) if len(scored) > 1 else 0
-    return scored[0] if top > 0 and top > second else None
+    f0 = fuzz_ratio(in_norm, normalize_for_match(str(tied[0].get("name", ""))))
+    f1 = fuzz_ratio(in_norm, normalize_for_match(str(tied[1].get("name", ""))))
+    return tied[0] if f0 > f1 else None
 
 
 _CODE_HAS_DIGIT = re.compile(r"\d")

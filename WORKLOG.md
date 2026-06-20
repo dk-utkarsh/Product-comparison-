@@ -143,6 +143,42 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-20 — Base-variant naming, GP size resolution, endo-type gate, 0.7 display filter
+
+From a 100-row `product_names.csv` test. (Note: the UI uses `/compare/batch-stream`,
+which streams to the browser and is NOT persisted — re-run to inspect; DK name
+resolution is deterministic so it reproduces exactly.)
+
+1. **Base-variant name kept when the input doesn't pin a child** (`compare.py`,
+   `_pick_dk_child`). `use_code` checked `bool(in_code)`, so a trailing descriptor
+   like "(Pack of 5)" counted as a child discriminator and the resolver drilled
+   into an arbitrary length child. Now gated on `_looks_like_code(in_code)`.
+   → *Surgident GBR Screw ∅ 1.4mm (Pack of 5)* — DK's grouped parent has 6 length
+   children (×3/4/6/8/10/12mm); the input names no length, so we now keep the
+   BASE name instead of writing "…∅ 1.4mm **x 3mm (SDS-140-030)**". (This is the
+   "sub-variant name written instead of base" report.)
+
+2. **Size child vs range child tie-break** (`_pick_dk_child`). When an input size
+   token appears in both an exact child and a range child ("#80" ∈ both "#80" and
+   "#45-80"), the token-count tie returned None → dropped to parent. Now breaks
+   the tie by name fuzz (exact size wins); range queries still resolve to the
+   range. → *Sure Endo Gutta Percha 2% #80* now resolves to "#80" (was "…2%").
+
+3. **Gutta-percha ≠ paper/absorbent points** (`gates.py` category exclusion).
+   Endo "points" of different kinds. paper↔absorbent are synonyms (same side).
+   → *Sure Endo Gutta Percha 2% #50*: oralkart's "Sure Endo **Paper Points**"
+   false match removed. (oralkart only stocks Sure Endo GP **4%/6%**, not the 2%,
+   so NO MATCH is correct; a 0.52 "Retraction Cord" borderline is hidden by #4.)
+
+4. **0.7 confidence display filter** (`static/index.html`). Per the request to
+   "remove results below overall confidence 0.7": matches scoring < `MIN_CONFIDENCE`
+   (0.7, adjustable constant) render as "no match" and are excluded from the
+   summary counts. Display-only (underlying data/feedback untouched) and reversible.
+
+All verified against the watch-list (GBR, GP #50/#70/#80/#45-80, forceps 041D,
+Korean box kit tier, retractor 079C, Maarc straight+horseshoe codes, GC) — no
+regressions.
+
 ### 2026-06-20 — Six precision fixes from a live case sweep (forceps/needle/micron/instrument/brand-alias/recall)
 
 Worked through a rapid batch of user-reported wrong results. Each fix is targeted

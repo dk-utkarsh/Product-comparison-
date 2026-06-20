@@ -47,6 +47,10 @@ _CATEGORY_EXCLUSIONS: list[tuple[frozenset[str], frozenset[str]]] = [
         frozenset({"monitor", "tft", "lcd", "screen", "display", "computer"}),
         frozenset({"crown", "crowns", "bracket", "dental"}),
     ),
+    # Gutta-percha points are not paper/absorbent points (both are endo "points",
+    # but obturation vs drying — "Sure Endo Gutta Percha #50" != "Sure Endo Paper
+    # Points"). paper<->absorbent are synonyms, so they're on the same side.
+    (frozenset({"gutta", "percha"}), frozenset({"paper", "absorbent"})),
     (frozenset({"conventional"}), frozenset({"mbt", "roth"})),
     (frozenset({"mbt"}), frozenset({"roth", "conventional", "duploslot"})),
     (frozenset({"roth"}), frozenset({"mbt", "conventional", "duploslot"})),

@@ -665,6 +665,12 @@ const COMPETITORS = [
   ["dentmark", "Dentmark"],
 ];
 
+// Hide low-confidence matches: any match below this score is shown as "no match"
+// (keeps the noisy borderline/possible results from cluttering). Adjustable.
+const MIN_CONFIDENCE = 0.7;
+const isShownMatch = (c) =>
+  !!c && c.matched_price != null && (c.score ?? 0) >= MIN_CONFIDENCE;
+
 const $ = (id) => document.getElementById(id);
 const enc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]);
 const fmtMoney = (n) => n == null ? "—" : "₹" + Number(n).toLocaleString("en-IN", { maximumFractionDigits: 0 });
@@ -915,7 +921,7 @@ function fmtDiff(d) {
   return `<span class="delta" style="color:var(--ink-mute)">= DK</span>`;
 }
 function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null) {
-  if (!c || c.matched_price == null) {
+  if (!isShownMatch(c)) {
     const gId = Math.random().toString(36).slice(2);
     const noMatchBtn = !isDk && c ? `
       <div class="fb-row" id="fb-${gId}" data-payload='${enc(JSON.stringify({
@@ -973,11 +979,11 @@ function renderResults(data, elapsed) {
   requestAnimationFrame(() => $("results-section").classList.add("in"));
 
   const compHits = data.results.reduce((n, r) =>
-    n + r.competitors.filter(c => c.matched_price != null).length, 0);
+    n + r.competitors.filter(isShownMatch).length, 0);
   const cheaper = data.results.reduce((n, r) =>
-    n + r.competitors.filter(c => (c.price_diff_vs_dk ?? 0) < 0).length, 0);
+    n + r.competitors.filter(c => isShownMatch(c) && (c.price_diff_vs_dk ?? 0) < 0).length, 0);
   const pricier = data.results.reduce((n, r) =>
-    n + r.competitors.filter(c => (c.price_diff_vs_dk ?? 0) > 0).length, 0);
+    n + r.competitors.filter(c => isShownMatch(c) && (c.price_diff_vs_dk ?? 0) > 0).length, 0);
 
   $("summary").innerHTML = `
     ${data.total} ${data.total === 1 ? "product" : "products"}
