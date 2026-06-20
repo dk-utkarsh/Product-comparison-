@@ -25,6 +25,7 @@ from app.matching.structured import (
     StructuredVerdict,
     structured_match,
 )
+from app.matching.normalize import normalize_for_match
 from app.matching.tokens import distinguishing_tokens
 from app.matching.triage import TriageResult, triage_batch
 from app.matching.variant_spec import SpecMatch, VariantSpec, has_size_signal
@@ -124,8 +125,18 @@ def select_variant(
         cp.variant_spec = chosen["variantSpec"]
 
 
+def _canonical_key(cand: CompetitorProduct) -> str:
+    """Dedup key for a candidate. Strip the URL query string (and trailing
+    slash) so the SAME product returned by different queries — e.g. oralkart's
+    search-tracking params '?_pos=2&_psq=…' — collapses to one entry instead of
+    eating several PDP-fetch slots. Falls back to the normalized name."""
+    url = cand.url or ""
+    base = url.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    return base or normalize_for_match(cand.name or "")
+
+
 async def scrape_all_queries(competitor_id: str, queries: list[str]) -> list[CompetitorProduct]:
-    """Fire every query in parallel, pool unique candidates by URL."""
+    """Fire every query in parallel, pool unique candidates by canonical URL."""
     raws = await asyncio.gather(
         *(scrape_competitor(competitor_id, q) for q in queries),
         return_exceptions=True,
@@ -136,7 +147,7 @@ async def scrape_all_queries(competitor_id: str, queries: list[str]) -> list[Com
         if not isinstance(r, list):
             continue
         for cand in r:
-            key = cand.url or cand.name
+            key = _canonical_key(cand)
             if key and key not in seen:
                 seen.add(key)
                 pooled.append(cand)

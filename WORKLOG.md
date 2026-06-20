@@ -29,7 +29,12 @@ Dentalkart as source of truth, and never crosses brands:
   (Julldent surgical box).
 - **Model/serial code**: KGF 9 vs KGF 9 · KO 1/2 · 5527/002/E · 079C (knives,
   articulating paper, retractor) — distinct-code guard so shared parent SKUs
-  don't false-match.
+  don't false-match. Same-code children disambiguate by name fuzz (041D forceps).
+- **Micron thickness**: 40µ ≠ 70µ ≠ 100µ articulating paper (hard discriminator).
+- **Instrument type**: forceps ≠ drills ≠ needle/holder/knife/chisel (two-sided).
+- **Distinctive-token gate**: same-brand items sharing only brand + a generic
+  noun (tray/paper/kit…) are different products (Tray Adeziv ≠ Eazy Tray).
+- **Brand aliases**: tiny explicit same-manufacturer map (Avue = Dental Avenue).
 - **Size/ambiguity**: base-product preference over specializations; base-name
   search + full-name ranking surfaces the right grouped parent.
 - **Out-of-stock** variants are shown (flagged), never hidden.
@@ -137,6 +142,91 @@ wire in unused competitor scrapers, run the golden-set eval
 ---
 
 ## Log (newest first)
+
+### 2026-06-20 — Six precision fixes from a live case sweep (forceps/needle/micron/instrument/brand-alias/recall)
+
+Worked through a rapid batch of user-reported wrong results. Each fix is targeted
+and verified against the full watch-list (GC, forceps 041D, retractor 079C, Maarc
+×3, micro tissue, suture, Upcera) with **no regressions**.
+
+1. **Same-code child disambiguation** (`compare.py:_resolve_by_code`). DK grouped
+   products can have TWO children sharing one parenthetical code (data quirk:
+   both "Micro Forcep Tooth - Angled (041D)" and "Diamond Dusted … Angled 45
+   (041D)"). The code pass returned the FIRST code match; now it collects ALL
+   code matches and picks the best **name** fuzz to the input.
+   → *Julldent Diamond Dusted Micro Surgical Forceps - Angled 45 (041D)* now correct.
+
+2. **DK soft-404 guard + JSON-LD-absent fallback** (`lib/scrapers/dentalkart.ts`).
+   (a) Some grouped products ship NO JSON-LD Product node — `fetchDentalkartProduct`
+   used to bail; now it recovers the name from `og:title`/`<h1>`/`<title>` and
+   parses children from the RSC. (b) DK serves a soft-404 ("Product Not Found",
+   HTTP 200) for delisted/broken products and redirects to the child slug; its
+   "related products" carousel would be mis-parsed as children — added a title
+   guard so we never surface that junk.
+   → *Julldent Micro Surgical Needle Holder … (073A)*: DK's child PDP is currently
+   a genuine soft-404 (verified 3/3, both clients), so the tool correctly falls
+   back to the parent name from search. **DK-side data issue**, not a tool bug.
+
+3. **Micron thickness as a hard discriminator** (`attributes.py`). "70 Microns",
+   "40µ Microns" → model_code `70u`/`40u`; the two-sided code gate rejects 40µ↔70µ.
+   → *Maarc Articulating Paper 70µ Horseshoe (5533/050)* no longer falsely matches
+   oralkart's **40µ** horseshoe; the 40µ variant still matches 40µ correctly.
+
+4. **More incompatible instrument types** (`gates.py`). Added drill(s), needle,
+   holder, knife, chisel to the instrument group (gate rejects only when BOTH
+   sides carry a *disjoint* instrument noun, so correct matches are untouched).
+   → *Julldent Micro Tissue Forceps - Straight Tooth*: oralkart's false
+   "Julldent Tissue Punch **Drills**" match is gone (now correctly NO MATCH —
+   no competitor actually carries this product).
+
+5. **Same-manufacturer brand alias** (`gates.py`). Tiny explicit map
+   (`avue → dental avenue`). "Avue" is Dental Avenue's house line; pinkblue lists
+   it as "Dental Avenue Avuecal". Brand discipline preserved (not a cross-brand
+   match). Control: avue↔unrelated still rejects.
+
+6. **Query-builder recall** (`query_builder.py`). Product-line words that merely
+   *start with* the brand were dropped (substring test), so "AvueCal" (brand
+   "Avue") was lost and the query competitors index by was never generated.
+   Now only the exact brand word is dropped → query "Avue AvueCal" is emitted.
+
+7. **Candidate dedup by canonical URL + larger PDP top-K** (`pipeline.py`,
+   `settings.py`). `scrape_all_queries` deduped by FULL URL, but oralkart (Shopify)
+   returns the same product with per-query search-tracking params
+   (`?_pos=2&_psq=…`), so 3 copies of one product ate all `pdp_top_k=3` PDP slots
+   and pushed the correct sub-variant out before it was ever evaluated. Now dedup
+   by URL path (query/fragment stripped); bumped `pdp_top_k` 3→5 (PDPs fetch
+   concurrently, so latency barely moves).
+   → *Prima Dental Diamond Bur 856-018M (TR-13)*: oralkart's
+   "Prima Dental Tapered Round Diamond Bur **TR Series**" (TR = Tapered Round)
+   was in the pool + triaged confirmed but never PDP-fetched (3 duplicate
+   "Endo Access Diamond Bur" cards out-ranked it). Now correctly matched.
+
+8. **"No shared distinctive token" gate** (`gates.py`). Two same-brand products
+   that share ONLY the brand + a generic format noun (tray/paper/kit/box/pack/
+   bottle/syringe…), while each carries its own distinctive token, are different
+   products. Conservative: never fires if either side is purely generic (a terse
+   "Maarc Articulating Paper" base listing still matches). Shape/material words
+   (diamond, straight, niti…) are NOT treated as generic.
+   → *Maarc Dental Tray **Adeziv** With Thinner* (a tray ADHESIVE) no longer
+   false-matches "Maarc **Eazy Tray**" (an impression tray) on pinkblue/oralkart
+   — no competitor actually stocks the adhesive, so NO MATCH is correct.
+   Verified it does NOT break AvueCal, GC, Angelus, Prima bur, or the knives.
+   Note on the Maarc papers: pinkblue lists only a generic "Maarc Articulating
+   Paper" (no micron) → surfaced as [possible]; oralkart's "40µ & 100µ combo"
+   matches the 40µ/100µ inputs ([possible], it contains them) and 70µ correctly
+   gets NO MATCH (micron gate). Horseshoe 40µ is [confirmed].
+
+**Still open after this sweep (need bigger changes, not shipped unvalidated):**
+- *Avue AvueCal* — candidate now reaches the matcher, but triage REJECTS it: the
+  pinkblue search-result name "Dental Avenue Avuecal" is lexically far from the
+  input; the matching detail ("Premixed Calcium Hydroxide") lives only in the
+  pinkblue **PDP description**. Needs **competitor-PDP enrichment** for borderline
+  candidates (fetch PDP, re-match on description) — a hot-path change.
+- *Angelus Interlig Single Patient Strip* — pinkblue has the correct
+  "Angelus Interlig (4832)" ₹3324 (≈DK ₹3800) AND a cheaper "Single Piece" ₹1181;
+  the tool picks "Single Piece" (misleading shared token "Single", and DK's
+  "Pack of 4" pack-normalization makes the single piece look in-band). Needs
+  **pack-aware / DK-price-anchored disambiguation** among competitor siblings.
 
 ### 2026-06-20 — Competitors matched to the INPUT when DK lacks it + catalog index
 

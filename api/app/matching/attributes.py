@@ -32,6 +32,10 @@ _SUTURE_RE = re.compile(r"#?\b(\d{1,2})\s*[-/]\s*0\b")
 # Integer dimension pair, e.g. archwire "17 x 25" (the decimal form ".017 x .025"
 # is handled by _DIM_PAIR_RE). Normalized to "<a>x<b>".
 _DIM_INT_RE = re.compile(r"\b(\d{2})\s*[x×*]\s*(\d{2})\b", re.IGNORECASE)  # noqa: RUF001
+# Articulating-paper / shim-stock thickness in microns, e.g. "70 Microns",
+# "40µ Microns", "100µ" — a hard variant discriminator (40µ ≠ 70µ). The bare
+# "u" unit is excluded (too ambiguous). Normalized to "<n>u".
+_MICRON_RE = re.compile(r"\b(\d{2,3})\s*(?:µ|μ|microns?)", re.IGNORECASE)  # noqa: RUF001
 _ISO_RE = re.compile(r"(?:#|no\.|size|iso)\s*(\d{2,3})\b", re.IGNORECASE)
 _SHADE_RE = re.compile(r"\b([A-D][1-4](?:\.5)?|BW|UD)\b")
 _CONC_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
@@ -95,6 +99,7 @@ def extract_attributes(name: str) -> Attributes:
     model_codes = [m.group(1).lower() for m in _MODEL_RE.finditer(name)]
     model_codes += [f"{m.group(1)}-0" for m in _SUTURE_RE.finditer(name)]
     model_codes += [f"{m.group(1)}x{m.group(2)}" for m in _DIM_INT_RE.finditer(name)]
+    model_codes += [f"{m.group(1)}u" for m in _MICRON_RE.finditer(name)]
 
     viscosity: str | None = None
     for v in _VISCOSITY_VARIANTS:

@@ -32,8 +32,10 @@ class Settings(BaseSettings):
     llm_judge_model: str = "claude-haiku-4-5"
     llm_judge_budget_per_run: int = 30
 
-    # How many top triaged candidates per competitor get a PDP fetch.
-    pdp_top_k: int = 3
+    # How many top triaged candidates per competitor get a PDP fetch. These
+    # fetch concurrently, so a slightly larger K barely affects latency but
+    # gives the right sub-variant a slot when several siblings score similarly.
+    pdp_top_k: int = 5
 
     # Structured-match CONFIRMED gates: product line must agree strongly.
     confirm_cosine: float = 0.80

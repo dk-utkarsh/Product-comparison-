@@ -10,7 +10,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from app.matching.attributes import Attributes, extract_attributes
+from app.matching.attributes import Attributes, extract_attributes, extract_brand
+from app.matching.tokens import distinguishing_tokens
 
 _INCOMPATIBLE_GROUPS: list[frozenset[str]] = [
     frozenset({
@@ -19,7 +20,8 @@ _INCOMPATIBLE_GROUPS: list[frozenset[str]] = [
         "condenser", "scissors", "plier", "pliers", "cutter",
         "clamp", "tweezer", "scaler", "curette", "periotome",
         "gauge", "caliper", "file", "files",
-        "handpiece", "bur", "burs",
+        "handpiece", "bur", "burs", "drill", "drills",
+        "needle", "holder", "knife", "chisel",
     }),
     frozenset({"liquid", "powder", "gel", "paste", "capsule", "tablet"}),
     frozenset({
@@ -60,6 +62,33 @@ _CATEGORY_EXCLUSIONS: list[tuple[frozenset[str], frozenset[str]]] = [
 
 _WORD_RE = re.compile(r"\b[a-z0-9]+\b")
 
+# Format/container nouns that are too generic to establish a match on their own.
+# Two same-brand products that share ONLY these (plus the brand) but each carry
+# their own distinctive token are different products — e.g. "Maarc Tray Adeziv"
+# (a tray ADHESIVE) vs "Maarc Eazy Tray" (an impression tray). Shape/material
+# words (diamond, straight, niti…) are deliberately NOT here — they discriminate.
+_GENERIC_NOUNS: frozenset[str] = frozenset({
+    "tray", "trays", "paper", "papers", "kit", "kits", "set", "sets",
+    "box", "boxes", "pack", "packs", "refill", "refills", "bottle", "bottles",
+    "pouch", "pouches", "roll", "rolls", "sheet", "sheets", "pad", "pads",
+    "tube", "tubes", "jar", "jars", "syringe", "syringes",
+})
+
+
+def _no_shared_distinctive(search: str, found: str) -> bool:
+    """True when both names carry a distinctive (non-brand, non-generic) token
+    but share NONE — strong evidence they're different products of the same
+    brand/category (e.g. 'adeziv'/'thinner' vs 'eazy'). Conservative: if either
+    side is purely generic (no distinctive token of its own), do NOT fire — a
+    terse competitor listing like 'Maarc Articulating Paper' should still match
+    as a plausible base product."""
+    sb, fb = extract_brand(search), extract_brand(found)
+    s_dist = distinguishing_tokens(search) - {sb} - _GENERIC_NOUNS
+    f_dist = distinguishing_tokens(found) - {fb} - _GENERIC_NOUNS
+    if not s_dist or not f_dist:
+        return False
+    return not (s_dist & f_dist)
+
 
 @dataclass(slots=True)
 class GateResult:
@@ -85,10 +114,24 @@ def _word_boundary(text: str, word: str) -> bool:
     return re.search(rf"\b{re.escape(word)}\b", text, re.IGNORECASE) is not None
 
 
+# Same-manufacturer brand aliases — NOT cross-brand matches. The left key is a
+# house/sub-brand; the right phrases are the same company written differently.
+# Kept tiny and explicit so brand discipline is preserved (e.g. "Avue" is the
+# house line of "Dental Avenue"; pinkblue lists it as "Dental Avenue Avuecal").
+_BRAND_ALIASES: dict[str, tuple[str, ...]] = {
+    "avue": ("dental avenue",),
+}
+
+
 def _brand_match(a: Attributes, search: str, found: str) -> bool:
     if not a.brand:
         return True
-    return _word_boundary(found, a.brand)
+    if _word_boundary(found, a.brand):
+        return True
+    for alias in _BRAND_ALIASES.get(a.brand, ()):
+        if all(_word_boundary(found, w) for w in alias.split()):
+            return True
+    return False
 
 
 def _incompatible_types(search_words: set[str], found_words: set[str]) -> bool:
@@ -130,6 +173,9 @@ def gate_check(search: str, found: str) -> GateResult:
 
     if _category_exclusion(s_words, f_words):
         return GateResult(False, "category exclusion")
+
+    if _no_shared_distinctive(search, found):
+        return GateResult(False, "no shared distinctive token")
 
     if s_attrs.iso_size and f_attrs.iso_size and s_attrs.iso_size != f_attrs.iso_size:
         return GateResult(False, f"iso size mismatch: {s_attrs.iso_size} vs {f_attrs.iso_size}")

@@ -464,9 +464,17 @@ async def _resolve_by_code(
         # all share one code (the parent SKU, e.g. "JULL-DENT 223"), the code
         # doesn't discriminate — defer to config/name resolution instead.
         if len({c for c in codes if c}) > 1:
-            for ch, code in zip(children, codes, strict=True):
-                if code == in_code:
-                    return _build_dk_result(rich, ch, input_name)
+            # Several children can share one code (DK data quirk — e.g. both
+            # "Micro Forcep Tooth - Angled (041D)" and "Diamond Dusted … Angled
+            # 45 (041D)"). Among code matches, pick the best NAME match to input.
+            coded = [ch for ch, code in zip(children, codes, strict=True) if code == in_code]
+            if coded:
+                in_norm = normalize_for_match(input_name)
+                best = max(
+                    coded,
+                    key=lambda ch: fuzz_ratio(in_norm, normalize_for_match(str(ch.get("name", "")))),
+                )
+                return _build_dk_result(rich, best, input_name)
         # A simple product whose own name carries the exact code.
         if not children and _paren_code(rich.name) == in_code:
             return _build_dk_result(rich, None, input_name)

@@ -387,10 +387,41 @@ export async function fetchDentalkartProduct(url: string): Promise<ProductData |
     const response = await smartFetch(url, { timeout: 15000 });
     if (!response.ok) return null;
     const html = await response.text();
-    const pdp = parsePdpHtml(html);
-    if (!pdp) return null;
-
+    // DK serves a soft-404 ("Product Not Found", HTTP 200) for delisted/broken
+    // products and redirects to the child slug. Its "related products" carousel
+    // would otherwise be mis-parsed as children — bail so we never surface junk.
+    if (/<title>\s*Product Not Found\s*<\/title>/i.test(html)) return null;
     const $ = cheerio.load(html);
+    let pdp = parsePdpHtml(html);
+    if (!pdp) {
+      // Some grouped products ship NO JSON-LD Product node (e.g. the Julldent
+      // "JULL-DENT 073" needle holder) — recover the name from the page head and
+      // lean on the RSC children for pricing/variants so the matcher can still
+      // resolve to the exact sub-variant instead of failing the whole PDP.
+      const headName = (
+        $('meta[property="og:title"]').attr("content") ||
+        $("h1").first().text() ||
+        $("title").text() ||
+        ""
+      )
+        .replace(/\s+/g, " ")
+        .replace(/\s*[|–-]\s*Dentalkart.*$/i, "")
+        .trim();
+      const kids = parseGroupedChildren(html, headName);
+      if (!headName || !kids.length) return null;
+      const prices = kids.map((v) => v.price).filter((p) => p > 0);
+      pdp = {
+        name: headName,
+        description: "",
+        image: kids.find((v) => v.image)?.image || "",
+        price: prices.length ? Math.min(...prices) : 0,
+        mrp: 0,
+        brand: "",
+        inStock: kids.some((v) => v.inStock),
+        sku: "",
+      };
+    }
+
     // Long description / key-features live in the description tab; the
     // JSON-LD description is often the short one. Concatenate both.
     const longDesc = $(

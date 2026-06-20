@@ -203,7 +203,10 @@ def extract_smart_queries(name: str, ctx: ProductContext | None = None) -> list[
         if (
             w.lower() not in _NOISE
             and not w.isdigit()
-            and brand_lower not in w.lower()
+            # Drop the brand word itself, but NOT a product token that merely
+            # starts with it — "AvueCal" (brand "Avue") is the distinctive name
+            # competitors index by, so excluding it loses the only useful query.
+            and w.lower() != brand_lower
             and (not type_lower or type_lower not in w.lower())
             and len(w) > 1
         )
