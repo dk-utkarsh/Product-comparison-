@@ -135,6 +135,13 @@ def _brand_match(a: Attributes, search: str, found: str) -> bool:
     for alias in _BRAND_ALIASES.get(a.brand, ()):
         if all(_word_boundary(found, w) for w in alias.split()):
             return True
+    # House line spelled as a single coined word: brand "Avue" → product line
+    # "AvueCal" (oralkart "AvueCal - Calcium Hydroxide…"). Only for brands long
+    # enough (≥4) that a prefix is meaningful, to avoid "pro"→"product" noise.
+    if len(a.brand) >= 4:
+        for w in _WORD_RE.findall(found.lower()):
+            if w != a.brand and w.startswith(a.brand):
+                return True
     return False
 
 

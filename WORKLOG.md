@@ -143,6 +143,53 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-22 — Systemic reliability pass (stop name-centric misses recurring)
+
+**User: "why do these issues come again and again… solve for the bigger picture
+so similar issues don't recur."** The recurring symptom (a product exists on a
+site but we miss it / show the base name) had ONE underlying cause: the pipeline
+trusted the NAME at several stages, and real catalogs break that assumption in
+different ways each time. Fixes here are general, not per-case:
+
+1. **DK child-aware resolution when the parent name diverges** (`compare.py`).
+   When `_best_match` finds no parent (grouped parent named unlike its child,
+   e.g. input "…Suture Corn Pliers - Large" under parent "Julldent Micro Tissue
+   …Forcep (JULL-DENT 074)"), it now falls through to `_resolve_by_child_name`
+   instead of returning NONE. → resolves ANY grouped product whose children have
+   divergent names. (Was: DK NONE for the whole 074 family.)
+2. **Description-boosted semantic match** (`structured.py`). Cosine now also
+   considers each side's PDP description (bounded slice, MAX with name-cosine so
+   it only helps). A terse listing whose identity is in the body
+   ("Dental Avenue Avuecal" → desc "Premixed Calcium Hydroxide Paste … syringe")
+   now matches. General to any sparse competitor listing.
+3. **Terse-listing rescue in top-K** (`pipeline.py`). A candidate sharing a
+   specific (≥6-char) token with the input gets a PDP-verify slot even if its
+   name triages weak — so the description boost can actually run on it. Capped;
+   gates still decide.
+4. **Best-signal confidence** (`pipeline.py`). A cell's shown score is
+   `max(name-triage, semantic-cosine)`, so a match confirmed via description
+   isn't buried below the 0.7 display filter by a low name score.
+5. **Brand house-line prefix** (`gates.py`). Brand "Avue" matches the coined
+   product word "AvueCal" (oralkart "AvueCal - Calcium Hydroxide…"); ≥4-char
+   brands only. Complements the existing alias map.
+6. **Near-exact name overrides the price band** (`structured.py`). A strong-name
+   match (fuzz ≥ confirm_fuzz or token ≥ 0.6) is the same product even when the
+   unit-price band fails — that gap is pack/FORM (a 25 Mtr reel vs a pack, or a
+   mis-parsed pack size like "25Mtr"→25), not a different product. → "Meril
+   Filasilk #2-0" now matches pinkblue's Filasilk #2-0 (was wrongly losing to an
+   in-band "Mericron XL #2-0"). The band still vetoes WEAK-name lookalikes
+   ("compressor valve" vs "air compressor").
+7. **Regression suite** (`tests/matching/test_regression_cases.py`). 16
+   deterministic, network-free assertions locking in EVERY fixed case (gates,
+   structured_match, _pick_dk_child, select_variant). New fixes get a case here
+   so they can't silently regress. Run: `uv run pytest tests/matching -q`.
+
+Results: AvueCal now matches pinkblue (0.74) + oralkart (0.90); the JULL-DENT 074
+family resolves; watch-list unregressed. **Not fixable (DK-side):** needle holder
+"(073A/073B)" — DK's `…073.html` is a genuine soft-404 ("Product Not Found"), so
+children can't be read; we correctly fall back to the parent name.
+
+
 ### 2026-06-22 — Pinkblue non-standard PDP parsing (bulk-price / variant-table layout)
 
 **User: pinkblue HAS the product (oro-gutta-percha-points-2.html, "Sure Endo

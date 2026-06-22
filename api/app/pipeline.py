@@ -200,18 +200,42 @@ def _prefilter(search: str, candidates: list[CompetitorProduct]) -> list[Competi
     return [c for c in candidates if c.name and distinguishing_tokens(c.name) & sig]
 
 
+def _specific_tokens(name: str) -> set[str]:
+    """Distinctive ≥6-char word tokens (drops short/numeric/stopword tokens) —
+    used to spot a terse listing whose identity is a specific shared term."""
+    return {t for t in distinguishing_tokens(name) if len(t) >= 6 and not t.isdigit()}
+
+
 def _top_candidates(
     dk_name: str, pool: list[CompetitorProduct]
 ) -> list[tuple[CompetitorProduct, TriageResult]]:
-    """Cheap name triage; keep the K most plausible for PDP fetching."""
+    """Cheap name triage; keep the K most plausible for PDP fetching, PLUS a few
+    'rescued' terse listings whose name triages weak but which share a specific
+    token with the input — their identity may live in the PDP description
+    ("Dental Avenue Avuecal" body: 'Premixed Calcium Hydroxide Paste … syringe').
+    The PDP fetch + structured gates (brand/spec/price) still decide; this only
+    grants a verification chance the name-only score would otherwise deny.
+    """
     settings = get_settings()
     results = triage_batch(dk_name, [c.name for c in pool])
+    pairs = list(zip(pool, results, strict=True))
     scored = [
-        (c, r) for c, r in zip(pool, results, strict=True)
+        (c, r) for c, r in pairs
         if r.verdict != Verdict.REJECTED and r.score >= settings.variant_threshold
     ]
     scored.sort(key=lambda cr: cr[1].score, reverse=True)
-    return scored[: settings.pdp_top_k]
+    top = scored[: settings.pdp_top_k]
+
+    in_spec = _specific_tokens(dk_name)
+    if in_spec:
+        chosen = {c.url for c, _ in top}
+        rescued = [
+            (c, r) for c, r in pairs
+            if c.url not in chosen and _specific_tokens(c.name) & in_spec
+        ]
+        rescued.sort(key=lambda cr: cr[1].score, reverse=True)
+        top += rescued[:2]
+    return top
 
 
 def _judge_to_cell_verdict(jv: JudgeVerdict) -> str | None:
@@ -283,7 +307,10 @@ async def discover(
         if sm.verdict == StructuredVerdict.REJECTED:
             verdict, matched_by = "rejected", "rules"
         elif sm.verdict == StructuredVerdict.CONFIRMED:
-            verdict, matched_by, confidence = "confirmed", "rules", tri.score
+            # A confirmed match should read confident even when the name-only
+            # triage score is low (terse listing confirmed via its description).
+            verdict, matched_by = "confirmed", "rules"
+            confidence = max(tri.score, sm.features.cosine)
         else:  # BORDERLINE
             jv = await judge_pair(dk_record, rec, budget)
             if jv is None:
@@ -299,7 +326,11 @@ async def discover(
                     verdict, matched_by = "rejected", "rules"
                     reasons.append("outside price band (judge unavailable)")
                 else:
-                    verdict, matched_by, confidence = "possible", "rules", tri.score
+                    # Confidence = best available signal. A terse listing
+                    # confirmed semantically via its description (high cosine)
+                    # should not be buried by a low name-only triage score.
+                    verdict, matched_by = "possible", "rules"
+                    confidence = max(tri.score, sm.features.cosine)
                     reasons.append("needs review (judge unavailable)")
             else:
                 mapped = _judge_to_cell_verdict(jv)

@@ -160,8 +160,21 @@ def structured_match(search: ProductRecord, candidate: ProductRecord) -> Structu
             MatchFeatures(attrs_compared=compared), mismatches)
 
     embedder = get_embedder()
-    vecs = embedder.encode_many([s_norm, c_norm])
+    # Terse listings (a competitor names a product as just "Dental Avenue
+    # Avuecal" with the form/size only in the PDP body) score low on name-only
+    # cosine even when they're the same product. Let each side's description
+    # contribute to the SEMANTIC signal — a bounded slice, and we take the MAX
+    # with the name-only cosine so it can only strengthen a true match, never
+    # weaken one. The brand / model-code / spec / price gates above still guard
+    # against false positives. General: helps any sparse competitor listing.
+    s_aug = normalize_for_match(f"{search.name} {search.description[:240]}") if search.description else ""
+    c_aug = normalize_for_match(f"{candidate.name} {candidate.description[:240]}") if candidate.description else ""
+    use_aug = bool(s_aug and c_aug and (s_aug != s_norm or c_aug != c_norm))
+    texts = [s_norm, c_norm] + ([s_aug, c_aug] if use_aug else [])
+    vecs = embedder.encode_many(texts)
     cosine = float(vecs[0] @ vecs[1])
+    if use_aug:
+        cosine = max(cosine, float(vecs[2] @ vecs[3]))
     tok = weighted_overlap(s_norm, c_norm)
     fzr = fuzz_ratio(s_norm, c_norm)
 
@@ -210,13 +223,23 @@ def structured_match(search: ProductRecord, candidate: ProductRecord) -> Structu
 
     strong_line = cosine >= settings.confirm_cosine or fzr >= settings.confirm_fuzz
     brand_ok = features.brand_match is not False
+    # A near-exact NAME match (same brand, same product line, same size tokens)
+    # is the same product even when the unit-price band fails — that gap is a
+    # pack/FORM difference (a 25 Mtr reel vs a single pack, or a mis-parsed pack
+    # size), not a different product. So a strong name match overrides the price
+    # band; the displayed price Δ then does its job. The band still vetoes
+    # WEAK-name lookalikes ("compressor valve" vs "air compressor").
+    near_exact = fzr >= settings.confirm_fuzz or tok >= 0.60
+    price_ok = in_band or near_exact
     # Thin data (no description/packaging on a side) normally blocks CONFIRMED,
     # but near-identical names with an agreeing variant attr are safe anyway.
     data_ok = (not thin) or (compared >= 1 and fzr >= 0.95)
     # An exact composition match is itself strong evidence the data is sound.
     if spec_match == SpecMatch.EXACT.value:
         data_ok = True
-    if strong_line and brand_ok and in_band and data_ok and (compared >= 1 or cosine >= 0.85):
+    if strong_line and brand_ok and price_ok and data_ok and (
+        compared >= 1 or cosine >= 0.85 or near_exact
+    ):
         return StructuredResult(
             StructuredVerdict.CONFIRMED, features, reasons, pack_note, spec_match=spec_match
         )

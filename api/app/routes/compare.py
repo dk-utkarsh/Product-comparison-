@@ -571,7 +571,12 @@ async def _resolve_dk(row: DkRow) -> tuple[CompetitorMatch | None, ProductRecord
 
     dk_match = _best_match(row.name, dk_raw, None, qualifier_ref=row.name)
     if dk_match is None:
-        return None, None
+        # No parent name-matched — but the input may be a CHILD whose grouped
+        # parent has a divergent name (e.g. input "…Suture Corn Pliers - Large"
+        # under parent "Julldent Micro Tissue …Forcep (JULL-DENT 074)"). Scan the
+        # top candidates' children for a near-exact match before giving up.
+        better = await _resolve_by_child_name(dk_raw, row.name, 0.0)
+        return better if better is not None else (None, None)
     dk_match.competitor_id = "dentalkart"
     dk_match.competitor_name = "Dentalkart"
 
