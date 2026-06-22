@@ -24,7 +24,13 @@ _SKU_TAIL_PATTERNS: list[re.Pattern[str]] = [
         r"\s*\[(sku|mpn|code|item|ref|part)\s*[:#]?\s*[a-z0-9][a-z0-9\-_/]{2,}\]\s*$",
         re.IGNORECASE,
     ),
-    re.compile(r"\s*[-—–|]\s*[A-Z]{1,4}[-_]?\d{3,}[A-Z0-9]*\s*$"),
+    # NOTE: we deliberately do NOT strip a bare trailing "- ABC123" code. It is
+    # far more often the VARIANT IDENTITY (e.g. "…Green HP - SDH101G" vs
+    # "- SDH081G", "…Retractor - 079A") than marketplace noise — erasing it
+    # collapses distinct sub-variants into one string and picks the wrong child.
+    # The two-sided model-code gate tolerates a code present on one side only,
+    # so keeping it doesn't hurt cross-site matching. Labeled SKU tails
+    # ("- SKU: ABC123") above ARE stripped — those are genuine noise.
 ]
 
 _PACK_TAIL_PATTERNS: list[re.Pattern[str]] = [

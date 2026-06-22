@@ -123,6 +123,33 @@ def test_base_input_keeps_parent_not_arbitrary_length_child():
     assert chosen is None, "should keep the base, not pick an arbitrary length"
 
 
+def test_trailing_variant_code_survives_and_discriminates():
+    """A bare trailing "- CODE" is the VARIANT IDENTITY, not SKU noise — the
+    normalizer must keep it so adjacent children stay distinct
+    ("…Green HP - SDH101G" vs "- SDH081G"). Was: both collapsed → wrong child."""
+    from app.matching.normalize import normalize_for_match
+    assert "SDH101G" in normalize_for_match("Labodent Diamond Stone Green HP - SDH101G")
+    # the gate now separates adjacent codes…
+    assert gate_check(N("Labodent Diamond Stone Green HP - SDH101G"),
+                      N("Labodent Diamond Stone Green HP - SDH081G")).passed is False
+    # …and child resolution lands on the exact code.
+    variants = [
+        _v("Labodent Diamond Stone Green HP - SDH081G"),
+        _v("Labodent Diamond Stone Green HP - SDH101G"),
+    ]
+    chosen = _pick_dk_child(
+        "Labodent Diamond Stone Green HP - SDH101G",
+        "Labodent Diamond Stones HP For Zirconia & Ceramic Grinding And Polishing",
+        variants)
+    assert chosen and chosen["name"].strip().endswith("SDH101G")
+
+
+def test_labeled_sku_tail_still_stripped():
+    """A LABELED sku/code tail is still genuine noise and must be stripped."""
+    from app.matching.normalize import normalize_for_match
+    assert normalize_for_match("GDC Periosteal Elevator - SKU: DK12345").strip().endswith("Elevator")
+
+
 def test_size_token_beats_range_child():
     """'#80' must resolve to the exact '#80', not the 'Assorted #45-80' range."""
     variants = [
