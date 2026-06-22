@@ -143,6 +143,34 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-22 — Scheduled SKU runs (admin catalog API + scheduler + history UI)
+
+New feature: pull random SKUs from DentalKart's catalog and auto-compare them
+5×/day, with a browsable history in the UI.
+
+- **Admin catalog client** (`dk_admin.py`). Reverse-engineered the admin SPA: the
+  product list is `POST serverless-prod.dentalkart.com/api/v1/products/list/view`
+  authenticated by the frontend `x-api-key` (no user login needed). Pulls random
+  enabled products and returns **name only** (the pipeline resolves DK + price
+  itself); ~46k-product catalog, sampled by random pages. Key in `api/.env`.
+- **Scheduler** (`scheduler.py`). Dependency-free asyncio loop — fires at the
+  configured IST times (`10:00,11:30,13:00,14:30,16:00`), server-side, for the
+  life of the process (always-on host; no run-on-boot, resumes at next slot).
+  Each run: random SKUs → `_compare_one` per name (concurrency 4) → persist.
+  Off by default; `SCHEDULED_RUNS_ENABLED=1` + key turns it on.
+- **SQLite store** (`run_store.py`, `api/data/runs.sqlite3`, gitignored). `runs`
+  + `run_items` (full CompareResult JSON per SKU). 30-day retention prune.
+- **API** (`routes/runs.py`): `GET /runs`, `GET /runs/{id}`, `POST /runs/trigger`.
+- **UI** — new "Scheduled Runs" topbar nav + section, reusing the existing
+  card / compare-table / cellHtml / pills so it matches the live-results design
+  exactly. Run list → click → the familiar comparison table for that run.
+  "Run now" button triggers a manual run. Refactored the table builder into a
+  shared `compareTableHTML()` used by both live results and run history.
+- Config in `settings.py` (`scheduled_*`, `dk_admin_*`, `runs_*`).
+  Deployment to the always-on server (e.g. pc-tool.dentalkart.com) is the only
+  remaining handoff step.
+
+
 ### 2026-06-22 — Systemic reliability pass (stop name-centric misses recurring)
 
 **User: "why do these issues come again and again… solve for the bigger picture

@@ -494,6 +494,8 @@
         <span class="label"><strong>Competitive Pricing</strong> · v0.2</span>
       </div>
       <div style="display:flex; align-items:center; gap:14px;">
+        <a href="#" class="docs-link" id="nav-compare">Compare</a>
+        <a href="#" class="docs-link" id="nav-runs">Scheduled&nbsp;Runs</a>
         <span id="fb-counter" class="label" title="Labelled matches collected for future auto-tuning">
           <span class="mono" style="color:var(--ink); font-weight:500;" id="fb-count">0</span>
           <span style="font-size:11px; color:var(--ink-mute);">labels</span>
@@ -655,6 +657,29 @@
         <div class="results-summary" id="summary"></div>
       </div>
       <div id="results"></div>
+    </div>
+  </section>
+
+  <!-- ── Scheduled Runs ───────────────────────────────────── -->
+  <section class="container reveal" id="runs-section" style="display:none; margin-bottom: 56px;">
+    <div class="card results-card">
+      <div class="results-head">
+        <h2>Scheduled Runs <span style="color:var(--ink-mute);font-weight:400;font-size:14px;margin-left:6px;">— 5×/day, fresh random SKUs from the catalog</span></h2>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span class="results-summary" id="runs-summary"></span>
+          <button class="btn-primary" id="runNowBtn" style="padding:8px 16px;">Run now</button>
+        </div>
+      </div>
+      <div id="runs-list"></div>
+    </div>
+
+    <div class="card results-card" id="run-detail-card" style="display:none; margin-top:24px;">
+      <div class="results-head">
+        <h2><a href="#" id="runs-back" class="docs-link" style="margin-right:10px;">← Back</a>
+          <span id="run-detail-title">Run</span></h2>
+        <div class="results-summary" id="run-detail-summary"></div>
+      </div>
+      <div id="run-detail"></div>
     </div>
   </section>
 
@@ -973,6 +998,41 @@ function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null
     </div>
   </td>`;
 }
+// Shared compare-table builder — used by live results AND the scheduled-runs
+// view so both render identically (same head, cells, styling).
+function compareTableHTML(results) {
+  const head = `
+    <th>#</th>
+    <th>Product name</th>
+    <th>Dentalkart.com</th>
+    ${COMPETITORS.map(([id, name]) => `<th>${name}</th>`).join("")}
+  `;
+  const rows = results.map((r, i) => {
+    const searchTerm = r.dentalkart.name;
+    const dkPrice = r.dentalkart_match?.matched_price ?? null;
+    const dkUrl = r.dentalkart_match?.matched_url ?? null;
+    const compCells = COMPETITORS.map(([id]) => {
+      const c = r.competitors.find((x) => x.competitor_id === id);
+      return cellHtml(c, false, searchTerm, dkPrice, dkUrl);
+    }).join("");
+    return `
+      <tr>
+        <td class="col-num">${i + 1}</td>
+        <td><div class="product-name">${enc(searchTerm)}</div></td>
+        ${cellHtml(r.dentalkart_match, true, searchTerm, dkPrice, dkUrl)}
+        ${compCells}
+      </tr>
+    `;
+  }).join("");
+  return `
+    <div style="overflow-x:auto;">
+      <table class="compare-table">
+        <thead><tr>${head}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
 function renderResults(data, elapsed) {
   $("elapsed-time").textContent = `${elapsed}s`;
   $("results-section").style.display = "block";
@@ -992,38 +1052,7 @@ function renderResults(data, elapsed) {
     <span class="pill emerald">${pricier} cheaper elsewhere</span>
   `;
 
-  const head = `
-    <th>#</th>
-    <th>Product name</th>
-    <th>Dentalkart.com</th>
-    ${COMPETITORS.map(([id, name]) => `<th>${name}</th>`).join("")}
-  `;
-  const rows = data.results.map((r, i) => {
-    const searchTerm = r.dentalkart.name;
-    const dkPrice = r.dentalkart_match?.matched_price ?? null;
-    const dkUrl = r.dentalkart_match?.matched_url ?? null;
-    const compCells = COMPETITORS.map(([id]) => {
-      const c = r.competitors.find((x) => x.competitor_id === id);
-      return cellHtml(c, false, searchTerm, dkPrice, dkUrl);
-    }).join("");
-    return `
-      <tr>
-        <td class="col-num">${i + 1}</td>
-        <td><div class="product-name">${enc(searchTerm)}</div></td>
-        ${cellHtml(r.dentalkart_match, true, searchTerm, dkPrice, dkUrl)}
-        ${compCells}
-      </tr>
-    `;
-  }).join("");
-
-  $("results").innerHTML = `
-    <div style="overflow-x:auto;">
-      <table class="compare-table">
-        <thead><tr>${head}</tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-  `;
+  $("results").innerHTML = compareTableHTML(data.results);
 }
 
 /* ── Feedback ──────────────────────────── */
@@ -1102,6 +1131,103 @@ async function sendGolden(fbId, label) {
   }
 }
 window.sendGolden = sendGolden;
+
+/* ── Scheduled Runs view ───────────────────────────────── */
+const COMPARE_SECTIONS = ["hero", "upload-section", "loading-section", "results-section"];
+
+function showCompare() {
+  $("runs-section").style.display = "none";
+  $("hero").style.display = "";
+  $("upload-section").style.display = "";
+}
+function showRuns() {
+  COMPARE_SECTIONS.forEach((id) => { const el = $(id); if (el) el.style.display = "none"; });
+  $("runs-section").style.display = "block";
+  requestAnimationFrame(() => $("runs-section").classList.add("in"));
+  $("run-detail-card").style.display = "none";
+  loadRuns();
+}
+
+function fmtRunTime(iso) {
+  if (!iso) return "—";
+  try { return new Date(iso).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }); }
+  catch { return iso; }
+}
+
+async function loadRuns() {
+  $("runs-list").innerHTML = `<div class="status-msg">Loading runs…</div>`;
+  try {
+    const r = await fetch("/runs");
+    const data = await r.json();
+    const runs = data.runs || [];
+    $("runs-summary").innerHTML = `<span class="pill">${runs.length} runs</span>`;
+    if (!runs.length) {
+      $("runs-list").innerHTML = `<div class="status-msg">No runs yet. They fire 5×/day automatically, or hit “Run now”.</div>`;
+      return;
+    }
+    const rows = runs.map((run) => {
+      const badge = run.status === "done" ? `<span class="pill emerald">done</span>`
+        : run.status === "running" ? `<span class="pill">running</span>`
+        : `<span class="pill rust">${enc(run.status)}</span>`;
+      return `
+        <tr style="cursor:pointer;" onclick="openRun(${run.id})">
+          <td class="col-num">#${run.id}</td>
+          <td><div class="product-name">${fmtRunTime(run.started_at)}</div></td>
+          <td>${enc(run.trigger)}</td>
+          <td>${badge}</td>
+          <td class="mono">${run.done_count}/${run.sku_count}</td>
+          <td><a href="#" class="cell-link" onclick="openRun(${run.id});return false;">view →</a></td>
+        </tr>`;
+    }).join("");
+    $("runs-list").innerHTML = `
+      <div style="overflow-x:auto;">
+        <table class="compare-table">
+          <thead><tr><th>#</th><th>Run time</th><th>Trigger</th><th>Status</th><th>SKUs</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  } catch (e) {
+    $("runs-list").innerHTML = `<div class="status-msg">Failed to load runs: ${enc(e.message)}</div>`;
+  }
+}
+
+async function openRun(id) {
+  const card = $("run-detail-card");
+  card.style.display = "block";
+  $("run-detail-title").textContent = `Run #${id}`;
+  $("run-detail").innerHTML = `<div class="status-msg">Loading…</div>`;
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+  try {
+    const r = await fetch(`/runs/${id}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const run = await r.json();
+    const results = (run.items || []).filter((it) => it.result).map((it) => it.result);
+    $("run-detail-title").textContent = `Run #${run.id} · ${fmtRunTime(run.started_at)}`;
+    const hits = results.reduce((n, rr) => n + rr.competitors.filter(isShownMatch).length, 0);
+    $("run-detail-summary").innerHTML = `
+      <span class="pill">${results.length} products</span>
+      <span class="pill">${hits} matches</span>`;
+    $("run-detail").innerHTML = results.length ? compareTableHTML(results)
+      : `<div class="status-msg">No items in this run.</div>`;
+  } catch (e) {
+    $("run-detail").innerHTML = `<div class="status-msg">Failed to load run: ${enc(e.message)}</div>`;
+  }
+}
+window.openRun = openRun;
+
+$("nav-runs").addEventListener("click", (e) => { e.preventDefault(); showRuns(); });
+$("nav-compare").addEventListener("click", (e) => { e.preventDefault(); showCompare(); });
+$("runs-back").addEventListener("click", (e) => { e.preventDefault(); $("run-detail-card").style.display = "none"; });
+$("runNowBtn").addEventListener("click", async () => {
+  const btn = $("runNowBtn");
+  btn.disabled = true; btn.textContent = "Starting…";
+  try {
+    await fetch("/runs/trigger", { method: "POST" });
+    setTimeout(loadRuns, 1500);
+  } finally {
+    setTimeout(() => { btn.disabled = false; btn.textContent = "Run now"; }, 2500);
+  }
+});
 
 refreshFeedbackCount();
 

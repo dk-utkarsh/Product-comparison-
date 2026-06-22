@@ -41,6 +41,16 @@ class Settings(BaseSettings):
     confirm_cosine: float = 0.80
     confirm_fuzz: float = 0.85
 
+    # ── Scheduled SKU runs (DentalKart admin catalog API) ───
+    dk_admin_products_url: str = "https://serverless-prod.dentalkart.com/api/v1/products/list/view"
+    dk_admin_api_key: str = ""          # x-api-key for the admin product API
+    scheduled_skus_per_run: int = 50
+    scheduled_run_times: str = "10:00,11:30,13:00,14:30,16:00"  # IST, comma-sep
+    scheduled_run_tz: str = "Asia/Kolkata"
+    scheduled_runs_enabled: bool = False  # turn the scheduler on
+    runs_retention_days: int = 30
+    runs_db_path: str = "data/runs.sqlite3"
+
     score_w_cosine: float = Field(default=0.45)
     score_w_brand: float = Field(default=0.15)
     score_w_pack: float = Field(default=0.05)
