@@ -382,15 +382,39 @@ function mapProduct(p: DentalkartProduct): ProductData {
  * Returns null when the page can't be parsed — caller falls back to the
  * (thinner) search-API data for that product.
  */
+// A soft-404 sentinel distinct from a hard failure (null), so the caller can
+// retry a sibling slug instead of giving up.
+const DK_NOT_FOUND = Symbol("dk-not-found");
+
 export async function fetchDentalkartProduct(url: string): Promise<ProductData | null> {
+  const first = await fetchDentalkartProductAt(url);
+  if (first !== DK_NOT_FOUND) return first;
+  // DK's search index can point at a STALE url_key whose live product moved to a
+  // "-1"/"-2" suffixed slug (Magento collision) — e.g. search returns
+  // ".../jull-dent-073.html" (Product Not Found) but the real grouped product is
+  // ".../jull-dent-073-1.html". Try those variants before giving up.
+  const m = url.match(/^(.*?)(\.html?)(\?.*)?$/i);
+  if (!m) return null;
+  for (const suffix of ["-1", "-2", "-3"]) {
+    const alt = `${m[1]}${suffix}${m[2]}${m[3] ?? ""}`;
+    const r = await fetchDentalkartProductAt(alt);
+    if (r && r !== DK_NOT_FOUND) return r;
+  }
+  return null;
+}
+
+async function fetchDentalkartProductAt(
+  url: string,
+): Promise<ProductData | null | typeof DK_NOT_FOUND> {
   try {
     const response = await smartFetch(url, { timeout: 15000 });
     if (!response.ok) return null;
     const html = await response.text();
     // DK serves a soft-404 ("Product Not Found", HTTP 200) for delisted/broken
     // products and redirects to the child slug. Its "related products" carousel
-    // would otherwise be mis-parsed as children — bail so we never surface junk.
-    if (/<title>\s*Product Not Found\s*<\/title>/i.test(html)) return null;
+    // would otherwise be mis-parsed as children — signal NOT_FOUND so the caller
+    // can try a sibling slug, and never mis-parse the carousel.
+    if (/<title>\s*Product Not Found\s*<\/title>/i.test(html)) return DK_NOT_FOUND;
     const $ = cheerio.load(html);
     let pdp = parsePdpHtml(html);
     if (!pdp) {
