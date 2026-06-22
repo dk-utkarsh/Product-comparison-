@@ -51,6 +51,32 @@ _NOISE_TAIL_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
+# Telltale byte sequences left when UTF-8 text is wrongly decoded as
+# CP1252/Latin-1 (the classic Excel/CSV "mojibake"): "Î¦"→Φ, "â€“"→–, "Âµ"→µ,
+# "Â°"→°, "Ã©"→é, etc. Cheap gate before attempting a repair.
+_MOJIBAKE_MARKERS = ("Ã", "Â", "Î", "â€", "Ð", "Ñ", " Å", " Â")
+
+
+def fix_mojibake(text: str) -> str:
+    """Recover UTF-8 text that was mis-decoded as CP1252/Latin-1.
+
+    Uploaded sheets routinely arrive with "Labodent … - Î¦98*10" (should be Φ),
+    "Retractor â€“ 50mm" (should be –), "40Âµ" (should be µ). Re-encoding to the
+    wrong codec's bytes and decoding as UTF-8 restores the original. We only act
+    when markers are present AND the round-trip yields valid UTF-8 — genuine text
+    fails the decode and is returned untouched, so this is safe to run on
+    everything. General: one repair covers Φ, –, µ, °, accented letters, … """
+    if not text or text.isascii():
+        return text
+    if not any(m in text for m in _MOJIBAKE_MARKERS):
+        return text
+    try:
+        repaired = text.encode("cp1252").decode("utf-8")
+    except (UnicodeError, LookupError):
+        return text
+    return repaired if repaired != text else text
+
+
 def _strip_with(patterns: list[re.Pattern[str]], name: str) -> str:
     out = name
     for pat in patterns:
@@ -71,5 +97,5 @@ def strip_noise_suffix(name: str) -> str:
 
 
 def normalize_for_match(name: str) -> str:
-    cleaned = strip_noise_suffix(strip_pack_suffix(strip_sku_tail(name)))
+    cleaned = strip_noise_suffix(strip_pack_suffix(strip_sku_tail(fix_mojibake(name))))
     return re.sub(r"\s+", " ", cleaned).strip()

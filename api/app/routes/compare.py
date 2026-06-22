@@ -31,7 +31,7 @@ from app.matching.query_builder import ProductContext, extract_smart_queries
 from app.matching.score import Verdict
 from app.matching.attributes import extract_attributes
 from app.matching.gates import gate_check
-from app.matching.normalize import normalize_for_match
+from app.matching.normalize import fix_mojibake, normalize_for_match
 from app.matching.structured import ProductRecord
 from app.matching.tokens import distinguishing_tokens, fuzz_ratio
 from app.matching.triage import triage_batch
@@ -667,6 +667,12 @@ def _dk_has_input_product(input_name: str, dk_record: ProductRecord | None) -> b
 async def _compare_one(
     row: DkRow, db: Database | None, budget: JudgeBudget
 ) -> CompareResult:
+    # Repair mojibake from the uploaded sheet ("…- Î¦98*10" → "Φ98*10",
+    # "â€“ 50mm" → "– 50mm") once at the entry point, so search queries, matching
+    # AND the displayed name are all clean. Every row (single + batch) flows here.
+    clean = fix_mojibake(row.name)
+    if clean != row.name:
+        row = DkRow(name=clean)
     dk_match, dk_record = await _resolve_dk(row)
 
     # The INPUT is the source of truth for what the user wants. When DK carries

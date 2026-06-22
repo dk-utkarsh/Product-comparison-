@@ -144,6 +144,17 @@ def test_trailing_variant_code_survives_and_discriminates():
     assert chosen and chosen["name"].strip().endswith("SDH101G")
 
 
+def test_mojibake_repair_general():
+    """Uploaded-sheet encoding corruption is repaired generally (Φ, –, µ, …),
+    and clean text is left untouched. Was: "Î¦98*10" → DK NONE."""
+    from app.matching.normalize import fix_mojibake
+    assert fix_mojibake("Labodent Titanium Disc - Î¦98*10").endswith("Φ98*10")
+    assert "–" in fix_mojibake("Retractor â€“ 50mm")
+    assert fix_mojibake("Maarc Articulating Paper 40Âµ") == "Maarc Articulating Paper 40µ"
+    assert fix_mojibake("GC Gold Label 9 Posterior Restorative") == "GC Gold Label 9 Posterior Restorative"
+    assert fix_mojibake("Φ98*10") == "Φ98*10"  # already-clean unicode untouched
+
+
 def test_labeled_sku_tail_still_stripped():
     """A LABELED sku/code tail is still genuine noise and must be stripped."""
     from app.matching.normalize import normalize_for_match
