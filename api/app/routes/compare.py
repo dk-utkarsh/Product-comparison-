@@ -646,11 +646,16 @@ def _dk_has_input_product(input_name: str, dk_record: ProductRecord | None) -> b
     should be matched to the INPUT, not DK's wrong resolution."""
     if dk_record is None:
         return False
-    in_codes = set(extract_attributes(normalize_for_match(input_name)).model_codes)
-    if in_codes:
-        dk_codes = set(extract_attributes(normalize_for_match(dk_record.name)).model_codes)
-        if not (in_codes & dk_codes):
-            return False
+    in_attrs = extract_attributes(normalize_for_match(input_name))
+    dk_attrs = extract_attributes(normalize_for_match(dk_record.name))
+    in_codes = set(in_attrs.model_codes)
+    if in_codes and not (in_codes & set(dk_attrs.model_codes)):
+        return False
+    # Upper vs Lower archwire is a different product. DK lists each separately
+    # and its search returns the nearest sibling — don't let "Lower 016 X 022"
+    # anchor on DK's "Upper 016 X 022" (then match competitors to the input).
+    if in_attrs.wire_form and dk_attrs.wire_form and in_attrs.wire_form != dk_attrs.wire_form:
+        return False
     return True
 
 

@@ -26,7 +26,7 @@ from app.matching.structured import (
     structured_match,
 )
 from app.matching.normalize import normalize_for_match
-from app.matching.tokens import distinguishing_tokens
+from app.matching.tokens import distinguishing_tokens, fuzz_ratio
 from app.matching.triage import TriageResult, triage_batch
 from app.matching.variant_spec import SpecMatch, VariantSpec, has_size_signal
 from app.matching.variant_spec import compare as compare_spec
@@ -69,14 +69,25 @@ _SPEC_RANK = {
 
 
 def select_variant(
-    cp: CompetitorProduct, dk_spec: VariantSpec | None, dk_price: float | None
+    cp: CompetitorProduct,
+    dk_spec: VariantSpec | None,
+    dk_price: float | None,
+    dk_name: str = "",
 ) -> None:
-    """When a competitor listing has sub-variants, pick the one matching the
-    Dentalkart product and rewrite `cp`'s price/spec to it. The "Extra"
-    formulation line is never selected against a non-Extra DK product (and vice
-    versa). Selection order: spec match (exact > same-tier > unknown >
-    different-size), then price-proximity to the DK listing price — which also
-    disambiguates grams-less variants (Big ₹2580 ≈ DK ₹2760, not Mini ₹1286).
+    """When a competitor listing has sub-variants, ALWAYS drill in and resolve to
+    the one matching the Dentalkart/input product — rewriting `cp`'s price/spec
+    AND its display name to that child (so the result shows the exact sub-variant,
+    e.g. "…016 X 022 Short Upper", not the base "…Wires"). The "Extra"
+    formulation line is never crossed.
+
+    Selection: structured spec match (exact > same-tier > unknown > different-size)
+    → most input-distinguishing-token hits (pins "Upper 016 X 022" even when the
+    archwire size isn't a captured spec) → price-proximity to the DK listing
+    price (disambiguates grams-less variants: Big ₹2580 ≈ DK ₹2760, not Mini).
+
+    The display name is rewritten ONLY when the input actually pins the child
+    (exact spec OR a strict name-token winner); a base input with no
+    discriminator keeps the base name rather than inventing a sub-variant.
     """
     # Real variants only — drop Shopify's placeholder "Default Title" (a
     # single-variant product) and empty rows.
@@ -88,16 +99,23 @@ def select_variant(
     if len(real) < 2:
         return  # nothing meaningful to choose between
 
-    # Only intervene for genuine SIZE/composition variants. Shade/slot variants
-    # (no size signal) must not be reshuffled by price — that just swaps the
-    # listing price for an arbitrary same-product variant.
     dk_has = dk_spec is not None and has_size_signal(dk_spec)
     variant_specs = [VariantSpec.from_dict(v.get("variantSpec")) for v in real]
     any_var_has = any(vs is not None and has_size_signal(vs) for vs in variant_specs)
-    if not (dk_has or any_var_has):
+    # Tokens the input adds beyond the competitor's base listing name (e.g.
+    # "upper", "016", "022") — let us pin the exact child by NAME even when the
+    # size isn't captured as a structured spec (3-digit archwire dims, Up/Lower).
+    in_extra = (
+        distinguishing_tokens(dk_name) - distinguishing_tokens(cp.name)
+        if dk_name else set()
+    )
+    # Shade/slot-only listings with no size signal AND no name discriminator must
+    # not be reshuffled — there's no specific child the input is asking for.
+    if not (dk_has or any_var_has or in_extra):
         return
 
-    scored: list[tuple[int, float, dict[str, Any]]] = []
+    in_norm = normalize_for_match(dk_name)
+    scored: list[tuple[int, int, float, float, dict[str, Any]]] = []
     for v, vs in zip(real, variant_specs, strict=True):
         match = (
             compare_spec(dk_spec, vs)
@@ -106,23 +124,44 @@ def select_variant(
         )
         if match is SpecMatch.DIFFERENT_FORMULATION:
             continue  # never cross the Extra / non-Extra line
+        name_hits = len(distinguishing_tokens(str(v.get("name", ""))) & in_extra)
+        fz = fuzz_ratio(in_norm, normalize_for_match(str(v.get("name", "")))) if dk_name else 0.0
         price = float(v.get("price") or 0)
         prox = abs(price - dk_price) if dk_price and dk_price > 0 else 0.0
-        scored.append((_SPEC_RANK.get(match, 2), prox, v))
+        # most token hits, then closest name, then closest price
+        scored.append((_SPEC_RANK.get(match, 2), -name_hits, -fz, prox, v))
 
     if not scored:
         return
-    scored.sort(key=lambda t: (t[0], t[1]))
-    _, _, chosen = scored[0]
+    scored.sort(key=lambda t: (t[0], t[1], t[2], t[3]))
+    best_rank, neg_hits, neg_fz, _, chosen = scored[0]
+    chosen_hits, chosen_fz = -neg_hits, -neg_fz
+    second_hits = -scored[1][1] if len(scored) > 1 else 0
+    second_fz = -scored[1][2] if len(scored) > 1 else 0.0
 
-    # Rewrite price/spec only — leave cp.name untouched so name-similarity
-    # scoring isn't polluted by appended variant labels.
+    # The input "pins" a child by NAME when it wins on the input's own
+    # distinguishing tokens (e.g. it asked for "Upper 016 X 022" or "#15") — by
+    # token count, or by name-fuzz when the token count ties ("#15" beats the
+    # "Assorted #15-40" range). A pure composition/spec match does NOT pin the
+    # name; that variant's label is often junk ("1-1 PKG") that would pollute the
+    # clean base name.
+    pins_by_name = chosen_hits > 0 and (
+        chosen_hits > second_hits
+        or (chosen_hits == second_hits and chosen_fz > second_fz)
+    )
+    if not (dk_has or any_var_has) and not pins_by_name:
+        return
+
     cp.price = float(chosen.get("price") or cp.price)
     cp.mrp = float(chosen.get("mrp") or cp.mrp)
     cp.pack_size = int(chosen.get("packSize") or cp.pack_size)
     cp.unit_price = float(chosen.get("unitPrice") or cp.unit_price)
     if chosen.get("variantSpec"):
         cp.variant_spec = chosen["variantSpec"]
+    # Show the resolved sub-variant name (default) when the input named it —
+    # e.g. "…016 X 022 Short Upper". A base input keeps the base name.
+    if chosen.get("name") and pins_by_name:
+        cp.name = str(chosen["name"])
 
 
 def _canonical_key(cand: CompetitorProduct) -> str:
@@ -229,8 +268,9 @@ async def discover(
         if rich.url in killed:
             # PDP fetch can canonicalize the URL into a killed one.
             continue
-        # Configurable/grouped listing → pick the sub-variant matching DK.
-        select_variant(rich, dk_record.variant_spec, dk_price)
+        # Configurable/grouped listing → resolve to (and display) the exact
+        # sub-variant matching the DK/input product, not the base listing.
+        select_variant(rich, dk_record.variant_spec, dk_price, dk_record.name)
         rec = record_from(rich)
         sm = structured_match(dk_record, rec)
 

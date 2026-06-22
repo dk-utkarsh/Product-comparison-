@@ -29,9 +29,10 @@ _MODEL_RE = re.compile(r"\b([a-z]{1,5}-?\d{2,5}[a-z]?)\b", re.IGNORECASE)
 # USP suture gauge, e.g. "#2-0", "2-0", "5/0" — a hard size discriminator
 # (Meril Filasilk #2-0 ≠ #5-0). Normalized to "<n>-0".
 _SUTURE_RE = re.compile(r"#?\b(\d{1,2})\s*[-/]\s*0\b")
-# Integer dimension pair, e.g. archwire "17 x 25" (the decimal form ".017 x .025"
-# is handled by _DIM_PAIR_RE). Normalized to "<a>x<b>".
-_DIM_INT_RE = re.compile(r"\b(\d{2})\s*[x×*]\s*(\d{2})\b", re.IGNORECASE)  # noqa: RUF001
+# Integer dimension pair, e.g. archwire "17 x 25" or the 3-digit leading-zero
+# form "016 X 022" (the decimal ".017 x .025" is handled by _DIM_PAIR_RE). Both
+# normalize to "<a>x<b>" so "016x022" ≠ "017x025" is a hard size discriminator.
+_DIM_INT_RE = re.compile(r"\b(\d{2,3})\s*[x×*]\s*(\d{2,3})\b", re.IGNORECASE)  # noqa: RUF001
 # Articulating-paper / shim-stock thickness in microns, e.g. "70 Microns",
 # "40µ Microns", "100µ" — a hard variant discriminator (40µ ≠ 70µ). The bare
 # "u" unit is excluded (too ambiguous). Normalized to "<n>u".

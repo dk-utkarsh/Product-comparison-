@@ -162,18 +162,30 @@ function parsePrice(text: string): number {
  */
 function parsePinkblueVariants($: cheerio.CheerioAPI): ProductVariant[] {
   const variants: ProductVariant[] = [];
-  $("tbody[id^='id_']").each((_, tb) => {
-    const $tb = $(tb);
-    const vName = $tb.find('td[data-th="Variant Name"] .product-item-name').text().trim();
-    const content = $tb.find('td[data-th="Package Content"] .product-item-name').text().trim();
-    if (!vName && !content) return;
+  const seen = new Set<string>();
+  // Match the variant cell directly, then walk up to its row — pinkblue uses
+  // several table layouts (some tbodies carry no id="id_…"), so keying on
+  // `tbody[id^='id_']` silently missed the custom "variant table" pages
+  // (e.g. Sure Endo Gutta Percha Points, where each size is a <tr> row).
+  $('td[data-th="Variant Name"]').each((_, td) => {
+    const $td = $(td);
+    const vName =
+      $td.find(".product-item-name").first().text().trim() || $td.text().trim();
+    if (!vName || seen.has(vName)) return;
 
-    const specialText = $tb.find(".special-price .price").first().text().trim();
-    const oldText = $tb.find(".old-price .price").first().text().trim();
-    const anyText = $tb.find(".price").first().text().trim();
+    const $row = $td.closest("tr,tbody");
+    const content = $row
+      .find('td[data-th="Package Content"] .product-item-name')
+      .first()
+      .text()
+      .trim();
+    const specialText = $row.find(".special-price .price").first().text().trim();
+    const oldText = $row.find(".old-price .price").first().text().trim();
+    const anyText = $row.find(".price").first().text().trim();
     const price = parsePrice(specialText) || parsePrice(anyText);
     const mrp = parsePrice(oldText) || price;
     if (price <= 0) return;
+    seen.add(vName);
 
     const label = `${vName} ${content}`.trim();
     // Pack count comes from the variant NAME ("Pack of 5"); the composition
@@ -181,7 +193,7 @@ function parsePinkblueVariants($: cheerio.CheerioAPI): ProductVariant[] {
     // misread "15 g" as a 15-pack. The grams live in variantSpec instead.
     const packSize = detectPackSize(vName, "", "");
     variants.push({
-      name: vName || content,
+      name: vName,
       sku: "",
       price,
       mrp,
@@ -231,17 +243,28 @@ export async function fetchPinkblueProduct(url: string): Promise<ProductData | n
     const sku =
       pdp?.sku || $(".product.attribute.sku .value").first().text().trim();
 
+    const packSize = detectPackSize(name, `${description} ${packaging}`, url);
+    const variants = parsePinkblueVariants($);
+
     let price = pdp?.price ?? 0;
     if (!price) {
       const amt = $(".product-info-price [data-price-amount]").first().attr("data-price-amount");
       price = parseFloat(amt || "0") || 0;
     }
+    if (!price) {
+      // Custom "bulk price" layout (no JSON-LD, no data-price-amount) — the
+      // price lives in a data-final-price attribute, e.g.
+      // <span class="main-bulk-price" data-final-price="271">.
+      const fp = $("[data-final-price]").first().attr("data-final-price");
+      price = parseFloat(fp || "0") || 0;
+    }
+    if (!price && variants.length) {
+      // Variant-table pages: fall back to the cheapest sub-variant price.
+      price = Math.min(...variants.map((v) => v.price).filter((p) => p > 0));
+    }
     const mrpText = $(".product-info-price .old-price .price").first().text().trim();
     const mrp = parsePrice(mrpText) || pdp?.mrp || price;
     if (price <= 0) return null;
-
-    const packSize = detectPackSize(name, `${description} ${packaging}`, url);
-    const variants = parsePinkblueVariants($);
     return {
       name,
       url,

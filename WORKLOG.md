@@ -143,6 +143,76 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-22 — Pinkblue non-standard PDP parsing (bulk-price / variant-table layout)
+
+**User: pinkblue HAS the product (oro-gutta-percha-points-2.html, "Sure Endo
+Gutta Percha Points") but it's not in our results.**
+
+Root cause: that page is a NON-standard pinkblue layout — no JSON-LD Product, no
+`data-price-amount`, no Magento swatches. The scraper got `price=0` → returned
+null → the product silently vanished. Fixes in `lib/scrapers/pinkblue.ts`:
+1. **Variant table parsing keyed on the cell**, not `tbody[id^='id_']` (which
+   matched nothing here): iterate `td[data-th="Variant Name"]`, walk up to the
+   row for name + price. Now yields the 12 size children (#08…#90-140).
+2. **Price fallback chain**: JSON-LD → `data-price-amount` → `[data-final-price]`
+   (the "main-bulk-price" attr) → cheapest variant price.
+Plus a `select_variant` tie-break: when sub-variants tie on input-token hits,
+break by name-fuzz so "#15" wins over the "Assorted #15-40" range (mirrors the
+DK `_pick_dk_child` fix). → *Sure Endo GP 2% #15 / #50* now match pinkblue and
+display "…2% #15" / "…2% #50".
+
+Known remaining (not the parse bug): *#80* ranks pinkblue's "Sure Endo **ProT**
+Gutta Percha Points" (ProTaper, a different line) over the correct "#80" child —
+a top-K/specialization ranking nuance to address separately.
+
+**Preventing this class of error going forward:**
+- Every scraper field should use LAYERED fallbacks (JSON-LD → og/h1 → page
+  attrs), never a single selector. (DK + pinkblue now do.)
+- PDP-parse failures are already logged by the sidecar (`→ null in Nms`); when a
+  product "isn't in results", check `/tmp/sidecar.log` for that URL first.
+- The thin search-card (name+price) is the fallback when a PDP won't parse — so
+  a product still matches at base level instead of vanishing.
+- TODO: a `scripts/check_pdp.py <competitor> <url>` diagnostic that prints which
+  extraction layer fired, and a small fixture of known-tricky URLs as a
+  regression guard.
+
+### 2026-06-22 — Competitor sub-variant display (default), archwire wire-form/dim discrimination
+
+**User: competitors show the BASE name even when the input names a sub-variant
+(Rabbit CIA archwire "Upper 016 X 022"). Make showing the matching sub-variant
+the default.**
+
+1. **`select_variant` is now name-aware and always drills in** (`pipeline.py`).
+   It previously only ran for captured size specs and deliberately left the
+   display name as the base. Now it also pins a child by the input's
+   distinguishing tokens (e.g. "upper", "016", "022") and, when the input
+   *names* that child (strict name-token winner), rewrites the DISPLAY name to
+   the resolved sub-variant. A pure composition-spec match (input didn't name
+   the variant) still updates price/spec only and keeps the base name — avoids
+   junk labels like GC's "1-1 PKG". (`discover` passes `dk_record.name`.)
+   → Rabbit archwire pinkblue: "…Wires (Pack Of 5)" → "…Size 016 X 022 Short
+   Upper". Prima bur: pinkblue/oralkart now show the exact ISO-coded variant
+   (verified those are REAL competitor variant names, not DK leakage).
+
+2. **3-digit archwire dimensions** (`attributes.py`). `_DIM_INT_RE` was 2-digit
+   only; now `\d{2,3}` so "016 X 022" → code "016x022" (≠ "017x025"). Decimal
+   ".016 x .022" already normalized the same way, so notations agree.
+
+3. **Wire-form (Upper/Lower) as a discriminator** (`compare.py`,
+   `_dk_has_input_product`). DK lists each archwire separately and its search
+   returns the nearest sibling; "Lower 016 X 022" was anchoring on DK's only
+   stocked "Upper 016 X 022". Now an Upper/Lower mismatch means DK doesn't carry
+   the input → competitors match the INPUT → pinkblue pins "…016 X 022 Short
+   Lower". (DK correctly shows NO MATCH for sizes it doesn't stock.)
+
+Analysis answered, no code needed: *Sure Endo Gutta Percha 2% #15/#80* — DK
+resolves the size correctly; competitors only had a 0.52 "Retraction Cord" (now
+hidden by the 0.7 filter) — pinkblue stocks only 4%/6%/ProTaper/non-standardized
+(or a broken-PDP listing), oralkart only 4%/6%. So NO competitor match is correct.
+
+Verified watch-list (GC, Maarc 40/70µ, Prima, forceps 041D, GBR base, GP
+#50/#80, retractor 079C, suture, archwire Upper/Lower/017×025) — no regressions.
+
 ### 2026-06-20 — Base-variant naming, GP size resolution, endo-type gate, 0.7 display filter
 
 From a 100-row `product_names.csv` test. (Note: the UI uses `/compare/batch-stream`,
