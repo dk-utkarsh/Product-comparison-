@@ -69,7 +69,7 @@ class StructuredResult:
 
 _VARIANT_FIELDS: tuple[str, ...] = (
     "iso_size", "shade", "concentration", "taper", "slot",
-    "viscosity", "material", "dimension", "wire_form",
+    "viscosity", "material", "dimension", "wire_form", "tip_number",
 )
 
 

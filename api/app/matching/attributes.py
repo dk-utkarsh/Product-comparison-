@@ -23,9 +23,29 @@ class Attributes:
     material: str | None = None
     dimension: str | None = None
     wire_form: str | None = None
+    tip_number: int | None = None
 
 
 _MODEL_RE = re.compile(r"\b([a-z]{1,5}-?\d{2,5}[a-z]?)\b", re.IGNORECASE)
+# Small instrument tip/size designator — "#6", "No. 3", "Excavator -1", "- 6".
+# Distinguishes hand-instrument tips that share the SAME model code
+# (GDC "…-1 EXC32L" vs "…- 6 EXC32L"). A hyphen designator must be SPACE-
+# separated so a code hyphen ("TR-13", "856-018M", "DL-300", "2-0") is NOT
+# mistaken for a tip. A units/pack/number lookahead keeps "- 40mm", "Pack of 5",
+# "016 X 022" out. 1–2 digits only (tips are small).
+# Designator forms recognized (all mean the same tip): "#6", "No. 3", "- 6",
+# "-1", and a BARE word-trailing number ("Excavator 3"). So "#3" and "3" are the
+# SAME tip. A hyphen designator must be space-separated (so "TR-13"/"DL-300"/
+# "2-0" code hyphens don't count); the bare form must follow a letter+space and
+# NOT "of " (so "Pack of 3" is excluded). The lookahead drops units/measure/
+# multi-digit/code tails.
+_TIP_RE = re.compile(
+    r"(?:#\s*|\bno\.?\s*|(?:^|\s)[-–]\s*|(?<=[a-zA-Z]\s)(?<!of\s))"  # noqa: RUF001
+    r"(\d{1,2})"
+    r"(?![\d./\-])"  # not part of the SAME number/code ("6.5", "6/0", "2-0", "63")
+    r"(?!\s*(?:mm|cm|ml|gm?|kg|oz|micron|µ|%|pcs?|nos?|units?|sets?|sheets?|ply|kit|burs?|x\b))",  # noqa: RUF001
+    re.IGNORECASE,
+)
 # USP suture gauge, e.g. "#2-0", "2-0", "5/0" — a hard size discriminator
 # (Meril Filasilk #2-0 ≠ #5-0). Normalized to "<n>-0".
 _SUTURE_RE = re.compile(r"#?\b(\d{1,2})\s*[-/]\s*0\b")
@@ -120,6 +140,12 @@ def extract_attributes(name: str) -> Attributes:
     wf = _WIRE_FORM_RE.search(lower)
     wire_form = wf.group(1).lower() if wf else None
 
+    tip_m = _TIP_RE.search(name)
+    tip_number = int(tip_m.group(1)) if tip_m else None
+    # A number that is actually the pack count ("Pack of 5" → 5) is not a tip.
+    if tip_number is not None and tip_number == pack_count:
+        tip_number = None
+
     return Attributes(
         brand=extract_brand(name),
         model_codes=model_codes,
@@ -133,6 +159,7 @@ def extract_attributes(name: str) -> Attributes:
         material=material,
         dimension=dimension,
         wire_form=wire_form,
+        tip_number=tip_number,
     )
 
 

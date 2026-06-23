@@ -123,6 +123,25 @@ def test_base_input_keeps_parent_not_arbitrary_length_child():
     assert chosen is None, "should keep the base, not pick an arbitrary length"
 
 
+def test_instrument_tip_number_discriminates():
+    """Hand instruments sharing a code but differing by tip number are different
+    ("…-1 EXC32L" vs "…- 6 EXC32L"); "#3" and bare "3" mean the SAME tip; pack
+    counts / measurements / code hyphens are not tips."""
+    from app.matching.attributes import extract_attributes as ea
+    tip = lambda s: ea(N(s)).tip_number
+    assert tip("GDC Endo Spoon Excavator -1 Exc32l") == 1
+    assert tip("GDC Endo Spoon Excavator - 6 EXC32L") == 6
+    assert tip("GDC Excavator #3 EXC32L") == 3 == tip("GDC Excavator 3 EXC32L")  # #3 == 3
+    for s in ("Prima Dental Diamond Bur 856-018M (TR-13) - Pack of 3",
+              "Julldent Premium Orringer Retractor - 40mm (079C)",
+              "Rabbit CIA NiTi Intrusion Archwires Upper 016 X 022 (Pack Of 5)"):
+        assert tip(s) is None, s
+    # the gate separates different tips, accepts same/compatible tips
+    assert gate_check(N("GDC Endo Spoon Excavator -1 Exc32l"),
+                      N("GDC Endo Spoon Excavator - 6 EXC32L")).passed is False
+    assert gate_check(N("GDC Excavator #3 EXC32L"), N("GDC Excavator 3 EXC32L")).passed is True
+
+
 def test_trailing_variant_code_survives_and_discriminates():
     """A bare trailing "- CODE" is the VARIANT IDENTITY, not SKU noise — the
     normalizer must keep it so adjacent children stay distinct

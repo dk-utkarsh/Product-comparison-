@@ -204,6 +204,11 @@ def gate_check(search: str, found: str) -> GateResult:
     if s_attrs.taper and f_attrs.taper and s_attrs.taper != f_attrs.taper:
         return GateResult(False, "taper mismatch")
 
+    # Hand-instrument tip/size number ("…-1 EXC32L" vs "…- 6 EXC32L", "#3" vs
+    # "#6") — same code, different tip = a different physical instrument.
+    if s_attrs.tip_number and f_attrs.tip_number and s_attrs.tip_number != f_attrs.tip_number:
+        return GateResult(False, f"tip number mismatch: {s_attrs.tip_number} vs {f_attrs.tip_number}")
+
     if s_attrs.slot and f_attrs.slot and s_attrs.slot != f_attrs.slot:
         return GateResult(False, "slot mismatch")
 

@@ -656,6 +656,7 @@
         <h2>Results <span style="color:var(--ink-mute);font-weight:400;font-size:14px;margin-left:6px;">— matched in <span id="elapsed-time" class="mono">0s</span></span></h2>
         <div class="results-summary" id="summary"></div>
       </div>
+      <div id="pricing-insights"></div>
       <div id="results"></div>
     </div>
   </section>
@@ -679,6 +680,7 @@
           <span id="run-detail-title">Run</span></h2>
         <div class="results-summary" id="run-detail-summary"></div>
       </div>
+      <div id="run-detail-insights"></div>
       <div id="run-detail"></div>
     </div>
   </section>
@@ -1033,6 +1035,68 @@ function compareTableHTML(results) {
     </div>`;
 }
 
+// Pricing-position analytics over a set of results (DK vs matched competitors).
+function pricingInsights(results) {
+  const rows = [];
+  let highest = 0, lowest = 0, mid = 0, aboveCheapest = 0, totalHeadroom = 0;
+  for (const r of results || []) {
+    const dk = r.dentalkart_match?.matched_price;
+    if (dk == null || dk <= 0) continue;
+    const comps = (r.competitors || [])
+      .filter(isShownMatch)
+      .map((c) => ({ id: c.competitor_id, price: c.matched_price }))
+      .filter((c) => c.price > 0);
+    if (!comps.length) continue;
+    const prices = comps.map((c) => c.price);
+    const maxC = Math.max(...prices), minC = Math.min(...prices);
+    const isHighest = dk > maxC, isLowest = dk < minC;
+    if (isHighest) highest++; else if (isLowest) lowest++; else mid++;
+    if (dk > minC) aboveCheapest++;
+    const headroom = dk < maxC ? Math.round(maxC - dk) : 0;
+    totalHeadroom += headroom;
+    rows.push({
+      name: r.dentalkart.name, dk, maxC, minC, headroom,
+      topComp: comps.find((c) => c.price === maxC)?.id || "",
+    });
+  }
+  return { counted: rows.length, highest, lowest, mid, aboveCheapest, totalHeadroom, rows };
+}
+
+function renderPricingInsights(results, elId) {
+  const el = $(elId);
+  if (!el) return;
+  const s = pricingInsights(results);
+  if (!s.counted) { el.innerHTML = ""; return; }
+  const opps = s.rows.filter((r) => r.headroom > 0).sort((a, b) => b.headroom - a.headroom);
+  const oppRows = opps.slice(0, 12).map((r) => `
+    <tr>
+      <td><div class="product-name">${enc(r.name)}</div></td>
+      <td class="mono">${fmtMoney(r.dk)}</td>
+      <td class="mono">${fmtMoney(r.maxC)} <span style="color:var(--ink-mute);font-size:11px;">(${enc(r.topComp)})</span></td>
+      <td class="mono"><strong style="color:var(--emerald,#0a7d4f);">+${fmtMoney(r.headroom)}</strong></td>
+    </tr>`).join("");
+  el.innerHTML = `
+    <div class="card" style="margin:14px 0 18px; background:var(--surface,#fafafa);">
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;">
+        <strong style="margin-right:6px;">Pricing insights</strong>
+        <span class="pill emerald">Lowest on ${s.lowest}</span>
+        <span class="pill rust">Most expensive on ${s.highest}</span>
+        <span class="pill">In&nbsp;between ${s.mid}</span>
+        <span class="pill">Above cheapest comp.: ${s.aboveCheapest}</span>
+        <span class="pill">Total raise-headroom ${fmtMoney(s.totalHeadroom)}</span>
+        <span style="color:var(--ink-mute);font-size:12px;">over ${s.counted} products with a competitor match</span>
+      </div>
+      ${opps.length ? `
+      <div style="font-size:13px;color:var(--ink-mute);margin:6px 0;">Top raise opportunities — how much you can increase price and stay under the priciest competitor:</div>
+      <div style="overflow-x:auto;">
+        <table class="compare-table">
+          <thead><tr><th>Product</th><th>DK price</th><th>Highest competitor</th><th>Raise up to</th></tr></thead>
+          <tbody>${oppRows}</tbody>
+        </table>
+      </div>` : `<div style="font-size:13px;color:var(--ink-mute);">No raise headroom — DK is at or above the top competitor on all matched products.</div>`}
+    </div>`;
+}
+
 function renderResults(data, elapsed) {
   $("elapsed-time").textContent = `${elapsed}s`;
   $("results-section").style.display = "block";
@@ -1052,6 +1116,7 @@ function renderResults(data, elapsed) {
     <span class="pill emerald">${pricier} cheaper elsewhere</span>
   `;
 
+  renderPricingInsights(data.results, "pricing-insights");
   $("results").innerHTML = compareTableHTML(data.results);
 }
 
@@ -1207,6 +1272,7 @@ async function openRun(id) {
     $("run-detail-summary").innerHTML = `
       <span class="pill">${results.length} products</span>
       <span class="pill">${hits} matches</span>`;
+    renderPricingInsights(results, "run-detail-insights");
     $("run-detail").innerHTML = results.length ? compareTableHTML(results)
       : `<div class="status-msg">No items in this run.</div>`;
   } catch (e) {
