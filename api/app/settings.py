@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     dk_admin_products_url: str = "https://serverless-prod.dentalkart.com/api/v1/products/list/view"
     dk_admin_api_key: str = ""          # x-api-key for the admin product API
     scheduled_skus_per_run: int = 50
+    # Of each run, this many are a FIXED watchlist (same products every run) so
+    # the price-history/comparison feature has a continuous series; the rest are
+    # fresh random. Seeded once from random, then kept constant.
+    scheduled_watchlist_size: int = 5
     scheduled_run_times: str = "10:00,11:30,13:00,14:30,16:00"  # IST, comma-sep
     scheduled_run_tz: str = "Asia/Kolkata"
     scheduled_runs_enabled: bool = False  # turn the scheduler on

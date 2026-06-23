@@ -1004,6 +1004,7 @@ function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null
 // view so both render identically (same head, cells, styling).
 let CURRENT_RESULTS = [];
 let REVIEWS = {};                            // row index → {correct, message}
+let CURRENT_RUN_ID = null;                   // set when reviewing a scheduled run
 function compareTableHTML(results) {
   CURRENT_RESULTS = results;                 // so toggleInsight(i) can look up a row
   REVIEWS = {};                              // fresh review state per render
@@ -1093,7 +1094,7 @@ async function submitReviews() {
   try {
     const res = await fetch("/reviews", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reviews }),
+      body: JSON.stringify({ reviews, run_id: CURRENT_RUN_ID }),
     });
     const d = await res.json();
     out.innerHTML = `
@@ -1262,6 +1263,7 @@ function renderPricingInsights(results, elId) {
 }
 
 function renderResults(data, elapsed) {
+  CURRENT_RUN_ID = null;                      // live results — reviews aren't run-scoped
   $("elapsed-time").textContent = `${elapsed}s`;
   $("results-section").style.display = "block";
   requestAnimationFrame(() => $("results-section").classList.add("in"));
@@ -1398,20 +1400,28 @@ async function loadRuns() {
       const badge = run.status === "done" ? `<span class="pill emerald">done</span>`
         : run.status === "running" ? `<span class="pill">running</span>`
         : `<span class="pill rust">${enc(run.status)}</span>`;
+      const acc = run.review && run.review.reviewed
+        ? `<span class="pill" title="${run.review.correct}/${run.review.reviewed} reviewed">${run.review.accuracy}%</span>`
+        : `<span style="color:var(--ink-mute);font-size:12px;">—</span>`;
+      const src = run.source_run_id ? ` <span style="color:var(--ink-mute);font-size:11px;">(of #${run.source_run_id})</span>` : "";
       return `
-        <tr style="cursor:pointer;" onclick="openRun(${run.id})">
+        <tr>
           <td class="col-num">#${run.id}</td>
-          <td><div class="product-name">${fmtRunTime(run.started_at)}</div></td>
-          <td>${enc(run.trigger)}</td>
+          <td style="cursor:pointer;" onclick="openRun(${run.id})"><div class="product-name">${fmtRunTime(run.started_at)}</div></td>
+          <td>${enc(run.trigger)}${src}</td>
           <td>${badge}</td>
           <td class="mono">${run.done_count}/${run.sku_count}</td>
-          <td><a href="#" class="cell-link" onclick="openRun(${run.id});return false;">view →</a></td>
+          <td>${acc}</td>
+          <td>
+            <a href="#" class="cell-link" onclick="openRun(${run.id});return false;">view →</a>
+            &nbsp;·&nbsp;<a href="#" class="cell-link" onclick="rerunRun(${run.id});return false;" title="Re-run the same products">↻ re-run</a>
+          </td>
         </tr>`;
     }).join("");
     $("runs-list").innerHTML = `
       <div style="overflow-x:auto;">
         <table class="compare-table">
-          <thead><tr><th>#</th><th>Run time</th><th>Trigger</th><th>Status</th><th>SKUs</th><th></th></tr></thead>
+          <thead><tr><th>#</th><th>Run time</th><th>Trigger</th><th>Status</th><th>SKUs</th><th>Accuracy</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>`;
@@ -1430,12 +1440,18 @@ async function openRun(id) {
     const r = await fetch(`/runs/${id}`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const run = await r.json();
+    CURRENT_RUN_ID = run.id;                  // reviews submitted here link to this run
     const results = (run.items || []).filter((it) => it.result).map((it) => it.result);
-    $("run-detail-title").textContent = `Run #${run.id} · ${fmtRunTime(run.started_at)}`;
+    $("run-detail-title").textContent = `Run #${run.id} · ${fmtRunTime(run.started_at)}`
+      + (run.source_run_id ? ` (re-run of #${run.source_run_id})` : "");
     const hits = results.reduce((n, rr) => n + rr.competitors.filter(isShownMatch).length, 0);
+    const acc = run.review && run.review.reviewed
+      ? `<span class="pill emerald">Accuracy ${run.review.accuracy}% (${run.review.correct}/${run.review.reviewed})</span>`
+      : `<span class="pill">not reviewed yet</span>`;
     $("run-detail-summary").innerHTML = `
       <span class="pill">${results.length} products</span>
-      <span class="pill">${hits} matches</span>`;
+      <span class="pill">${hits} matches</span>
+      ${acc}`;
     renderPricingInsights(results, "run-detail-insights");
     $("run-detail").innerHTML = results.length ? compareTableHTML(results)
       : `<div class="status-msg">No items in this run.</div>`;
@@ -1444,6 +1460,19 @@ async function openRun(id) {
   }
 }
 window.openRun = openRun;
+
+async function rerunRun(id) {
+  if (!confirm(`Re-run the exact same products as run #${id}? (computes fresh prices to compare)`)) return;
+  try {
+    const r = await fetch(`/runs/${id}/rerun`, { method: "POST" });
+    const d = await r.json();
+    alert(`Re-run started for ${d.products} products (copy of #${id}). It'll appear at the top of the list shortly.`);
+    setTimeout(loadRuns, 2000);
+  } catch (e) {
+    alert("Failed to start re-run: " + e.message);
+  }
+}
+window.rerunRun = rerunRun;
 
 $("nav-runs").addEventListener("click", (e) => { e.preventDefault(); showRuns(); });
 $("nav-compare").addEventListener("click", (e) => { e.preventDefault(); showCompare(); });

@@ -36,6 +36,7 @@ class ReviewItem(BaseModel):
 
 class ReviewBatch(BaseModel):
     reviews: list[ReviewItem]
+    run_id: int | None = None   # set when reviewing a scheduled run's results
 
 
 @router.post("")
@@ -52,9 +53,10 @@ def submit_reviews(batch: ReviewBatch) -> dict:
             # Surface improvement notes in the logs for root-cause work.
             log.warning("review-issue", product=r.product, dk_matched=r.dk_matched,
                         message=(r.message or "").strip())
-        run_store.save_review(now, r.product, r.dk_matched, r.correct, r.message, r.result)
+        run_store.save_review(now, r.product, r.dk_matched, r.correct, r.message,
+                              r.result, batch.run_id)
     accuracy = round(100.0 * correct / total, 1) if total else None
-    log.info("review-batch", total=total, correct=correct, accuracy=accuracy)
+    log.info("review-batch", total=total, correct=correct, accuracy=accuracy, run_id=batch.run_id)
     return {"total": total, "correct": correct, "needs_fix": total - correct,
             "accuracy": accuracy, "overall": run_store.review_summary()}
 

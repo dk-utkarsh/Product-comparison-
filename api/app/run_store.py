@@ -22,10 +22,16 @@ CREATE TABLE IF NOT EXISTS runs (
     started_at  TEXT NOT NULL,
     finished_at TEXT,
     status      TEXT NOT NULL,          -- running | done | error
-    trigger     TEXT NOT NULL,          -- scheduled | manual
+    trigger     TEXT NOT NULL,          -- scheduled | manual | rerun
     sku_count   INTEGER DEFAULT 0,
     done_count  INTEGER DEFAULT 0,
-    error       TEXT
+    error       TEXT,
+    source_run_id INTEGER               -- when trigger=rerun, the run it copied
+);
+CREATE TABLE IF NOT EXISTS watchlist (
+    sku      TEXT PRIMARY KEY,
+    name     TEXT NOT NULL,
+    added_at TEXT
 );
 CREATE TABLE IF NOT EXISTS run_items (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,7 +50,8 @@ CREATE TABLE IF NOT EXISTS reviews (
     dk_matched  TEXT,                   -- what DK resolved to (for context)
     correct     INTEGER NOT NULL,       -- 1 = reviewer says correct, 0 = needs fix
     message     TEXT,                   -- improvement note when not correct
-    result      TEXT                    -- full CompareResult JSON snapshot
+    result      TEXT,                   -- full CompareResult JSON snapshot
+    run_id      INTEGER                 -- the scheduled run reviewed (else NULL)
 );
 CREATE INDEX IF NOT EXISTS ix_reviews_correct ON reviews(correct);
 """
@@ -65,18 +72,56 @@ def _conn() -> sqlite3.Connection:
     return c
 
 
+def _migrate(c: sqlite3.Connection) -> None:
+    """Add columns to pre-existing tables (CREATE IF NOT EXISTS won't alter them)."""
+    for table, col, decl in (
+        ("reviews", "run_id", "INTEGER"),
+        ("runs", "source_run_id", "INTEGER"),
+    ):
+        cols = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
+        if col not in cols:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+
+
 def init_db() -> None:
     with _conn() as c:
         c.executescript(_SCHEMA)
+        _migrate(c)
 
 
-def create_run(started_at: str, trigger: str, sku_count: int) -> int:
+def create_run(started_at: str, trigger: str, sku_count: int,
+               source_run_id: int | None = None) -> int:
     with _conn() as c:
         cur = c.execute(
-            "INSERT INTO runs (started_at, status, trigger, sku_count) VALUES (?,?,?,?)",
-            (started_at, "running", trigger, sku_count),
+            "INSERT INTO runs (started_at, status, trigger, sku_count, source_run_id) "
+            "VALUES (?,?,?,?,?)",
+            (started_at, "running", trigger, sku_count, source_run_id),
         )
         return int(cur.lastrowid)
+
+
+# ── watchlist (the fixed products kept in every run for price tracking) ──
+def get_watchlist() -> list[dict[str, Any]]:
+    with _conn() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT sku, name FROM watchlist ORDER BY added_at, sku").fetchall()]
+
+
+def set_watchlist(items: list[dict[str, str]], added_at: str) -> None:
+    with _conn() as c:
+        c.execute("DELETE FROM watchlist")
+        c.executemany(
+            "INSERT OR REPLACE INTO watchlist (sku, name, added_at) VALUES (?,?,?)",
+            [(i["sku"], i["name"], added_at) for i in items],
+        )
+
+
+def add_to_watchlist(items: list[dict[str, str]], added_at: str) -> None:
+    with _conn() as c:
+        c.executemany(
+            "INSERT OR IGNORE INTO watchlist (sku, name, added_at) VALUES (?,?,?)",
+            [(i["sku"], i["name"], added_at) for i in items],
+        )
 
 
 def save_item(run_id: int, idx: int, sku: str, name: str, result: dict[str, Any]) -> None:
@@ -101,7 +146,12 @@ def list_runs(limit: int = 200) -> list[dict[str, Any]]:
         rows = c.execute(
             "SELECT * FROM runs ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
-    return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["review"] = run_review_summary(d["id"])
+            out.append(d)
+    return out
 
 
 def get_run(run_id: int) -> dict[str, Any] | None:
@@ -114,6 +164,7 @@ def get_run(run_id: int) -> dict[str, Any] | None:
             (run_id,),
         ).fetchall()
     out = dict(run)
+    out["review"] = run_review_summary(run_id)
     out["items"] = [
         {"idx": it["idx"], "sku": it["sku"], "name": it["name"],
          "result": json.loads(it["result"]) if it["result"] else None}
@@ -153,15 +204,27 @@ def price_history(name: str) -> list[dict[str, Any]]:
 
 
 def save_review(created_at: str, product: str, dk_matched: str | None,
-                correct: bool, message: str | None, result: dict[str, Any] | None) -> int:
+                correct: bool, message: str | None, result: dict[str, Any] | None,
+                run_id: int | None = None) -> int:
     with _conn() as c:
         cur = c.execute(
-            "INSERT INTO reviews (created_at, product, dk_matched, correct, message, result) "
-            "VALUES (?,?,?,?,?,?)",
+            "INSERT INTO reviews (created_at, product, dk_matched, correct, message, result, run_id) "
+            "VALUES (?,?,?,?,?,?,?)",
             (created_at, product, dk_matched, 1 if correct else 0, message,
-             json.dumps(result) if result is not None else None),
+             json.dumps(result) if result is not None else None, run_id),
         )
         return int(cur.lastrowid)
+
+
+def run_review_summary(run_id: int) -> dict[str, Any]:
+    with _conn() as c:
+        row = c.execute(
+            "SELECT COUNT(*) total, COALESCE(SUM(correct),0) correct FROM reviews WHERE run_id=?",
+            (run_id,),
+        ).fetchone()
+    total = int(row["total"]); correct = int(row["correct"])
+    return {"reviewed": total, "correct": correct,
+            "accuracy": round(100.0 * correct / total, 1) if total else None}
 
 
 def list_reviews(limit: int = 1000, only_issues: bool = False) -> list[dict[str, Any]]:

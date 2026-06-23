@@ -912,3 +912,16 @@ decide the first optimization target.
   line (product + dk_matched + message) so improvement notes are easy to pull.
 - Workflow: grep `review-issue` (or GET /reviews?only_issues=1) → diagnose →
   fix at the layer where info is lost → add a regression case (same durable loop).
+
+### 2026-06-23 — Watchlist (45 random + 5 fixed), re-run a past run, per-run accuracy
+
+- **Fixed watchlist**: each scheduled run now = 5 FIXED products (seeded once from
+  random, then constant) + 45 fresh random — so the price-history/comparison
+  feature has a continuous series. Capped + self-healing (`run_store.watchlist`,
+  `scheduled_watchlist_size`). `GET /runs/watchlist`.
+- **Re-run a past run**: `POST /runs/{id}/rerun` replays the EXACT products of a
+  past run (trigger=rerun, source_run_id) so prices can be recomputed and
+  compared. UI: "↻ re-run" per row; re-runs show "(re-run of #N)".
+- **Per-run accuracy**: reviews now carry `run_id`; the runs list + detail show
+  each run's accuracy (correct/reviewed), so accuracy can be tracked/compared
+  across runs over time.

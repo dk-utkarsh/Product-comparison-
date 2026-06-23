@@ -28,6 +28,29 @@ def price_history(name: str) -> dict:
     return {"name": name, "history": run_store.price_history(name)}
 
 
+@router.get("/watchlist")
+def watchlist() -> dict:
+    """The fixed products kept in every run (for price tracking)."""
+    return {"watchlist": run_store.get_watchlist()}
+
+
+@router.post("/{run_id}/rerun")
+async def rerun(run_id: int) -> dict:
+    """Re-run the EXACT same products as a past run (to recompute & compare)."""
+    run = run_store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    from app.dk_admin import AdminProduct
+    products = [
+        AdminProduct(sku=it.get("sku") or "", name=it["name"])
+        for it in run.get("items", []) if it.get("name")
+    ]
+    if not products:
+        raise HTTPException(status_code=400, detail="run has no products to replay")
+    asyncio.create_task(execute_run("rerun", products=products, source_run_id=run_id))
+    return {"status": "started", "products": len(products), "source_run_id": run_id}
+
+
 @router.get("/{run_id}")
 def get_run(run_id: int) -> dict:
     run = run_store.get_run(run_id)

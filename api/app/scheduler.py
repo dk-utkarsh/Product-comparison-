@@ -53,10 +53,43 @@ def _next_fire(now: datetime, times: list[tuple[int, int]]) -> datetime:
     return first + timedelta(days=1)
 
 
-async def execute_run(trigger: str = "manual") -> int:
-    """Run one batch: random SKUs → compare each → persist. Returns run_id."""
+async def _build_run_products() -> list:
+    """The run set = the FIXED watchlist (seeded once, then constant) + fresh
+    random products filling the rest. Keeping the watchlist constant gives the
+    price-history feature a continuous series across runs."""
+    from app.dk_admin import AdminProduct, fetch_random_skus
+    s = get_settings()
+    tz = ZoneInfo(s.scheduled_run_tz)
+
+    size = s.scheduled_watchlist_size
+    wl = run_store.get_watchlist()
+    if len(wl) < size:  # seed the watchlist once from random products
+        seed = await fetch_random_skus(size - len(wl))
+        if seed:
+            run_store.add_to_watchlist(
+                [{"sku": p.sku, "name": p.name} for p in seed],
+                datetime.now(tz).isoformat(timespec="seconds"),
+            )
+            wl = run_store.get_watchlist()
+    # Use EXACTLY `size` fixed products; trim any over-seed (e.g. a startup race)
+    # so the same set persists every run.
+    wl = wl[:size]
+    if len(run_store.get_watchlist()) > size:
+        run_store.set_watchlist(wl, datetime.now(tz).isoformat(timespec="seconds"))
+
+    fixed = [AdminProduct(sku=w["sku"], name=w["name"]) for w in wl]
+    wl_skus = {w["sku"] for w in wl}
+    n_random = max(0, s.scheduled_skus_per_run - len(fixed))
+    rand = [p for p in await fetch_random_skus(n_random + 15) if p.sku not in wl_skus][:n_random]
+    return fixed + rand
+
+
+async def execute_run(trigger: str = "manual", products: list | None = None,
+                      source_run_id: int | None = None) -> int:
+    """Run one batch: compare each product → persist. `products` (each with
+    .sku/.name) lets a re-run replay an exact past set; otherwise watchlist +
+    random. Returns run_id."""
     # Imported lazily to avoid an import cycle (routes.compare imports heavy deps).
-    from app.dk_admin import fetch_random_skus
     from app.db import get_db
     from app.routes.compare import _compare_one, DkRow
 
@@ -66,8 +99,9 @@ async def execute_run(trigger: str = "manual") -> int:
 
     tz = ZoneInfo(s.scheduled_run_tz)
     started = datetime.now(tz).isoformat(timespec="seconds")
-    products = await fetch_random_skus(s.scheduled_skus_per_run)
-    run_id = run_store.create_run(started, trigger, len(products))
+    if products is None:
+        products = await _build_run_products()
+    run_id = run_store.create_run(started, trigger, len(products), source_run_id)
     log.info("scheduled-run start", run_id=run_id, trigger=trigger, skus=len(products))
 
     db = None
