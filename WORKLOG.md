@@ -900,3 +900,15 @@ theme recurs.
 
 **Next:** establish an accuracy baseline (run `test-20-products.xlsx`), then
 decide the first optimization target.
+
+### 2026-06-23 — Human accuracy review (per-row ✓/✗ + notes → accuracy + logs)
+
+- Per-result-row review controls: ✓ (reviewed-correct) or ✗ (needs-fix → reveals
+  an improvement note box). A submit bar computes **accuracy = correct/reviewed**
+  and shows this-batch + all-time figures.
+- Backend `routes/reviews.py` + `reviews` table in the run-store SQLite:
+  `POST /reviews` (store batch, return accuracy), `GET /reviews[?only_issues=1]`,
+  `GET /reviews/summary`. Every needs-fix is also emitted as a `review-issue` log
+  line (product + dk_matched + message) so improvement notes are easy to pull.
+- Workflow: grep `review-issue` (or GET /reviews?only_issues=1) → diagnose →
+  fix at the layer where info is lost → add a regression case (same durable loop).

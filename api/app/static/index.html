@@ -1003,8 +1003,10 @@ function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null
 // Shared compare-table builder — used by live results AND the scheduled-runs
 // view so both render identically (same head, cells, styling).
 let CURRENT_RESULTS = [];
+let REVIEWS = {};                            // row index → {correct, message}
 function compareTableHTML(results) {
   CURRENT_RESULTS = results;                 // so toggleInsight(i) can look up a row
+  REVIEWS = {};                              // fresh review state per render
   const span = 3 + COMPETITORS.length;       // # + name + DK + competitors
   const head = `
     <th>#</th>
@@ -1027,6 +1029,14 @@ function compareTableHTML(results) {
           <div class="product-name">${enc(searchTerm)}</div>
           <button class="btn-ghost" id="insight-btn-${i}" onclick="toggleInsight(${i})"
             style="margin-top:7px;font-size:12px;padding:3px 10px;">＋ View insight</button>
+          <div style="margin-top:6px;display:flex;gap:6px;align-items:center;">
+            <button class="btn-ghost" id="rv-ok-${i}" title="Reviewed — correct"
+              onclick="markReview(${i}, true)" style="font-size:13px;padding:2px 9px;">✓</button>
+            <button class="btn-ghost" id="rv-no-${i}" title="Needs improvement"
+              onclick="markReview(${i}, false)" style="font-size:13px;padding:2px 9px;">✗</button>
+          </div>
+          <textarea id="rv-msg-${i}" placeholder="What's wrong / how to improve…"
+            style="display:none;width:100%;margin-top:6px;font-size:12px;min-height:48px;"></textarea>
         </td>
         ${cellHtml(r.dentalkart_match, true, searchTerm, dkPrice, dkUrl)}
         ${compCells}
@@ -1044,8 +1054,60 @@ function compareTableHTML(results) {
         <thead><tr>${head}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
+    </div>
+    <div class="card" id="review-bar" style="margin-top:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+      <strong>Accuracy review</strong>
+      <span style="color:var(--ink-mute);font-size:13px;">Mark each row ✓ correct or ✗ needs-fix (add a note), then submit.</span>
+      <span class="pill" id="review-progress">0 reviewed</span>
+      <button class="btn-primary" onclick="submitReviews()" style="padding:8px 16px;">Submit &amp; calculate accuracy</button>
+      <div id="accuracy-result" style="flex-basis:100%;"></div>
     </div>`;
 }
+
+function markReview(i, correct) {
+  REVIEWS[i] = { correct };
+  const ok = $("rv-ok-" + i), no = $("rv-no-" + i), msg = $("rv-msg-" + i);
+  if (ok) { ok.style.background = correct ? "#0a7d4f" : ""; ok.style.color = correct ? "#fff" : ""; }
+  if (no) { no.style.background = !correct ? "#b04a2f" : ""; no.style.color = !correct ? "#fff" : ""; }
+  if (msg) { msg.style.display = correct ? "none" : "block"; if (!correct) msg.focus(); }
+  const p = $("review-progress");
+  if (p) p.textContent = Object.keys(REVIEWS).length + " reviewed";
+}
+window.markReview = markReview;
+
+async function submitReviews() {
+  const idxs = Object.keys(REVIEWS);
+  const out = $("accuracy-result");
+  if (!idxs.length) { out.innerHTML = `<div class="status-msg">Mark at least one row first.</div>`; return; }
+  const reviews = idxs.map((i) => {
+    const r = CURRENT_RESULTS[i];
+    return {
+      product: r.dentalkart.name,
+      dk_matched: r.dentalkart_match?.matched_name ?? null,
+      correct: !!REVIEWS[i].correct,
+      message: REVIEWS[i].correct ? null : (($("rv-msg-" + i)?.value) || "").trim(),
+      result: r,
+    };
+  });
+  out.innerHTML = `<div class="status-msg">Submitting…</div>`;
+  try {
+    const res = await fetch("/reviews", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reviews }),
+    });
+    const d = await res.json();
+    out.innerHTML = `
+      <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <span class="pill emerald" style="font-size:14px;">Accuracy ${d.accuracy ?? "—"}%</span>
+        <span class="pill">${d.correct}/${d.total} correct</span>
+        <span class="pill rust">${d.needs_fix} need fix</span>
+        <span style="color:var(--ink-mute);font-size:12px;">All-time: ${d.overall?.accuracy ?? "—"}% over ${d.overall?.total ?? 0} reviews · notes saved to logs</span>
+      </div>`;
+  } catch (e) {
+    out.innerHTML = `<div class="status-msg">Failed to submit: ${enc(e.message)}</div>`;
+  }
+}
+window.submitReviews = submitReviews;
 
 // Per-product insight: pricing position vs competitors + price history over runs.
 function toggleInsight(i) {

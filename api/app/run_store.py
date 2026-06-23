@@ -37,6 +37,16 @@ CREATE TABLE IF NOT EXISTS run_items (
     UNIQUE(run_id, idx)
 );
 CREATE INDEX IF NOT EXISTS ix_run_items_run ON run_items(run_id);
+CREATE TABLE IF NOT EXISTS reviews (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at  TEXT NOT NULL,
+    product     TEXT NOT NULL,          -- input product name reviewed
+    dk_matched  TEXT,                   -- what DK resolved to (for context)
+    correct     INTEGER NOT NULL,       -- 1 = reviewer says correct, 0 = needs fix
+    message     TEXT,                   -- improvement note when not correct
+    result      TEXT                    -- full CompareResult JSON snapshot
+);
+CREATE INDEX IF NOT EXISTS ix_reviews_correct ON reviews(correct);
 """
 
 
@@ -140,6 +150,37 @@ def price_history(name: str) -> list[dict[str, Any]]:
             "dk_price": dk.get("matched_price"), "competitors": comps,
         })
     return out
+
+
+def save_review(created_at: str, product: str, dk_matched: str | None,
+                correct: bool, message: str | None, result: dict[str, Any] | None) -> int:
+    with _conn() as c:
+        cur = c.execute(
+            "INSERT INTO reviews (created_at, product, dk_matched, correct, message, result) "
+            "VALUES (?,?,?,?,?,?)",
+            (created_at, product, dk_matched, 1 if correct else 0, message,
+             json.dumps(result) if result is not None else None),
+        )
+        return int(cur.lastrowid)
+
+
+def list_reviews(limit: int = 1000, only_issues: bool = False) -> list[dict[str, Any]]:
+    q = "SELECT id, created_at, product, dk_matched, correct, message FROM reviews"
+    if only_issues:
+        q += " WHERE correct = 0"
+    q += " ORDER BY id DESC LIMIT ?"
+    with _conn() as c:
+        return [dict(r) for r in c.execute(q, (limit,)).fetchall()]
+
+
+def review_summary() -> dict[str, Any]:
+    with _conn() as c:
+        row = c.execute(
+            "SELECT COUNT(*) total, COALESCE(SUM(correct),0) correct FROM reviews"
+        ).fetchone()
+    total = int(row["total"]); correct = int(row["correct"])
+    return {"total": total, "correct": correct,
+            "accuracy": round(100.0 * correct / total, 1) if total else None}
 
 
 def prune(retention_days: int) -> int:
