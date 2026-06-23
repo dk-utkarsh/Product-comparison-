@@ -22,6 +22,12 @@ def list_runs() -> dict:
     return {"runs": run_store.list_runs()}
 
 
+@router.get("/history")
+def price_history(name: str) -> dict:
+    """Past price points for a product (by exact name) across stored runs."""
+    return {"name": name, "history": run_store.price_history(name)}
+
+
 @router.get("/{run_id}")
 def get_run(run_id: int) -> dict:
     run = run_store.get_run(run_id)

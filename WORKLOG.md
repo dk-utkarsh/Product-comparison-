@@ -143,6 +143,26 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-23 — Tip-number discriminator + pricing insights + per-product insight & price history
+
+- **Instrument tip number** (`attributes`/`gates`/`structured`). A hand-instrument
+  tip/size number is now a hard discriminator: "#6", "No. 3", "- 6", "-1", and a
+  bare word-trailing number all map to the same tip — so **"#3" == "3"** but
+  **"-1" ≠ "- 6"**. Fixes GDC Endo Spoon Excavator "-1" wrongly matching the
+  "- 6" (both share code EXC32L). Pack counts ("of 3"), measurements (mm/g/%),
+  and code hyphens (TR-13/DL-300/2-0) are excluded. (Confirmed the scheduler is
+  live: a product's history shows the manual run + the 10:00 IST scheduled run.)
+- **Pricing insights panel** (UI) over results + run detail: counts of where DK
+  is lowest / most-expensive / mid, "above cheapest competitor", total
+  raise-headroom, and a top-opportunities table (raise price up to the priciest
+  competitor).
+- **Per-product insight** (UI): a "View insight" button before each product opens
+  a closable inline panel showing (a) that product's pricing position vs each
+  competitor + raise-headroom, and (b) its **price history across past runs**
+  (`GET /runs/history?name=…`, from the SQLite run store) with a DK trend.
+- Regression suite now **20 cases** (adds tip-number + the earlier fixes).
+
+
 ### 2026-06-22 — Scheduled SKU runs (admin catalog API + scheduler + history UI)
 
 New feature: pull random SKUs from DentalKart's catalog and auto-compare them

@@ -1002,7 +1002,10 @@ function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null
 }
 // Shared compare-table builder — used by live results AND the scheduled-runs
 // view so both render identically (same head, cells, styling).
+let CURRENT_RESULTS = [];
 function compareTableHTML(results) {
+  CURRENT_RESULTS = results;                 // so toggleInsight(i) can look up a row
+  const span = 3 + COMPETITORS.length;       // # + name + DK + competitors
   const head = `
     <th>#</th>
     <th>Product name</th>
@@ -1020,9 +1023,18 @@ function compareTableHTML(results) {
     return `
       <tr>
         <td class="col-num">${i + 1}</td>
-        <td><div class="product-name">${enc(searchTerm)}</div></td>
+        <td>
+          <div class="product-name">${enc(searchTerm)}</div>
+          <button class="btn-ghost" id="insight-btn-${i}" onclick="toggleInsight(${i})"
+            style="margin-top:7px;font-size:12px;padding:3px 10px;">＋ View insight</button>
+        </td>
         ${cellHtml(r.dentalkart_match, true, searchTerm, dkPrice, dkUrl)}
         ${compCells}
+      </tr>
+      <tr class="insight-row" id="insight-row-${i}" style="display:none;">
+        <td colspan="${span}" style="background:var(--surface,#fafafa);">
+          <div id="insight-body-${i}"></div>
+        </td>
       </tr>
     `;
   }).join("");
@@ -1033,6 +1045,96 @@ function compareTableHTML(results) {
         <tbody>${rows}</tbody>
       </table>
     </div>`;
+}
+
+// Per-product insight: pricing position vs competitors + price history over runs.
+function toggleInsight(i) {
+  const row = $("insight-row-" + i), btn = $("insight-btn-" + i);
+  if (!row) return;
+  if (row.style.display !== "none") {
+    row.style.display = "none";
+    if (btn) btn.textContent = "＋ View insight";
+    return;
+  }
+  row.style.display = "table-row";
+  if (btn) btn.textContent = "－ Hide insight";
+  const r = CURRENT_RESULTS[i];
+  if (!$("insight-body-" + i).dataset.loaded) {
+    $("insight-body-" + i).innerHTML =
+      productInsightHTML(r) +
+      `<div id="insight-history-${i}" class="status-msg" style="margin-top:10px;">Loading price history…</div>`;
+    $("insight-body-" + i).dataset.loaded = "1";
+    loadProductHistory(i, r.dentalkart.name);
+  }
+}
+window.toggleInsight = toggleInsight;
+
+function productInsightHTML(r) {
+  const dk = r.dentalkart_match?.matched_price ?? null;
+  const comps = (r.competitors || []).filter(isShownMatch)
+    .map((c) => ({ id: c.competitor_id, price: c.matched_price }));
+  if (dk == null) return `<div class="status-msg">No Dentalkart price for this product.</div>`;
+  if (!comps.length) return `<div class="status-msg">No competitor match — nothing to compare for this product.</div>`;
+  const prices = comps.map((c) => c.price);
+  const maxC = Math.max(...prices), minC = Math.min(...prices);
+  const pos = dk < minC ? `<span class="pill emerald">DK is cheapest</span>`
+    : dk > maxC ? `<span class="pill rust">DK is most expensive</span>`
+    : `<span class="pill">DK is mid-priced</span>`;
+  const headroom = dk < maxC ? Math.round(maxC - dk) : 0;
+  const compRows = comps.map((c) => {
+    const d = Math.round(dk - c.price);
+    const tag = d > 0 ? `<span class="delta pricier">DK ₹${Math.abs(d)} higher</span>`
+      : d < 0 ? `<span class="delta cheaper">DK ₹${Math.abs(d)} lower</span>` : `= same`;
+    return `<tr><td>${enc(c.id)}</td><td class="mono">${fmtMoney(c.price)}</td><td>${tag}</td></tr>`;
+  }).join("");
+  return `
+    <div class="card" style="margin:6px 0;">
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
+        <strong>Pricing position</strong>
+        ${pos}
+        <span class="pill">DK ${fmtMoney(dk)}</span>
+        ${headroom > 0
+          ? `<span class="pill emerald">Can raise up to +${fmtMoney(headroom)} (stay under ${fmtMoney(maxC)})</span>`
+          : `<span class="pill">No raise headroom</span>`}
+      </div>
+      <table class="compare-table">
+        <thead><tr><th>Competitor</th><th>Price</th><th>vs DK</th></tr></thead>
+        <tbody>${compRows}</tbody>
+      </table>
+    </div>`;
+}
+
+async function loadProductHistory(i, name) {
+  const el = $("insight-history-" + i);
+  if (!el) return;
+  try {
+    const r = await fetch("/runs/history?name=" + encodeURIComponent(name));
+    const hist = (await r.json()).history || [];
+    if (!hist.length) {
+      el.outerHTML = `<div id="insight-history-${i}" class="status-msg" style="margin-top:10px;">No past price history yet — this product hasn't appeared in a scheduled run.</div>`;
+      return;
+    }
+    const cols = COMPETITORS.map(([id]) => id);
+    const dkFirst = hist.find((h) => h.dk_price != null)?.dk_price;
+    const dkLast = [...hist].reverse().find((h) => h.dk_price != null)?.dk_price;
+    const trend = (dkFirst != null && dkLast != null && dkFirst !== dkLast)
+      ? ` — DK ${fmtMoney(dkFirst)} → ${fmtMoney(dkLast)} (${dkLast > dkFirst ? "+" : ""}${fmtMoney(Math.round(dkLast - dkFirst))})`
+      : "";
+    const head = `<th>Run time</th><th>DK</th>${cols.map((c) => `<th>${c}</th>`).join("")}`;
+    const rows = hist.map((h) => `
+      <tr>
+        <td>${fmtRunTime(h.time)}</td>
+        <td class="mono">${h.dk_price != null ? fmtMoney(h.dk_price) : "—"}</td>
+        ${cols.map((c) => `<td class="mono">${h.competitors[c] != null ? fmtMoney(h.competitors[c]) : "—"}</td>`).join("")}
+      </tr>`).join("");
+    el.outerHTML = `
+      <div id="insight-history-${i}" style="margin-top:10px;">
+        <div style="font-size:13px;color:var(--ink-mute);margin-bottom:6px;">Price history — ${hist.length} past run${hist.length === 1 ? "" : "s"}${trend}:</div>
+        <div style="overflow-x:auto;"><table class="compare-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
+      </div>`;
+  } catch (e) {
+    el.textContent = "Failed to load price history: " + e.message;
+  }
 }
 
 // Pricing-position analytics over a set of results (DK vs matched competitors).

@@ -112,6 +112,36 @@ def get_run(run_id: int) -> dict[str, Any] | None:
     return out
 
 
+def price_history(name: str) -> list[dict[str, Any]]:
+    """Every stored price point for a product (by name), oldest first — DK +
+    each competitor (shown matches only) per run that included it. Powers the
+    per-product price-change view."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT r.id run_id, r.started_at, i.result "
+            "FROM run_items i JOIN runs r ON r.id = i.run_id "
+            "WHERE i.name = ? AND i.result IS NOT NULL ORDER BY r.started_at",
+            (name,),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            res = json.loads(row["result"])
+        except (TypeError, ValueError):
+            continue
+        dk = res.get("dentalkart_match") or {}
+        comps = {
+            c["competitor_id"]: c.get("matched_price")
+            for c in res.get("competitors", [])
+            if c.get("matched_name") and (c.get("score") or 0) >= 0.7 and c.get("matched_price")
+        }
+        out.append({
+            "run_id": row["run_id"], "time": row["started_at"],
+            "dk_price": dk.get("matched_price"), "competitors": comps,
+        })
+    return out
+
+
 def prune(retention_days: int) -> int:
     """Delete runs older than retention_days (by started_at). Returns #deleted."""
     with _conn() as c:
