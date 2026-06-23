@@ -486,9 +486,17 @@ async def _resolve_by_code(
                     coded,
                     key=lambda ch: fuzz_ratio(in_norm, normalize_for_match(str(ch.get("name", "")))),
                 )
-                return _build_dk_result(rich, best, input_name)
-        # A simple product whose own name carries the exact code.
-        if not children and _paren_code(rich.name) == in_code:
+                # A shared SKU code is NOT enough — the brand must still match, so
+                # an Oracraft input never adopts a GDC product that reuses the
+                # same code "(10-130-03e)". (Brand discipline over code match.)
+                if gate_check(in_norm, normalize_for_match(str(best.get("name", "")))).passed:
+                    return _build_dk_result(rich, best, input_name)
+        # A simple product whose own name carries the exact code — brand must match.
+        if (
+            not children
+            and _paren_code(rich.name) == in_code
+            and gate_check(normalize_for_match(input_name), normalize_for_match(rich.name)).passed
+        ):
             return _build_dk_result(rich, None, input_name)
     return None
 

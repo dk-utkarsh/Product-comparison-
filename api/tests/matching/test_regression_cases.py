@@ -41,6 +41,14 @@ GATE_CASES = [
     ("Maarc Articulating Paper 70 Microns Horseshoe (5533/050)",
      "Maarc Articulating Paper (Horseshoe Shape) 40µ Microns", False, "70µ≠40µ"),
     ("GC Gold Label 9", "3M Filtek Z350", False, "cross-brand control"),
+    # Brand spelled with/without spaces/hyphens is the SAME brand…
+    ("Oracraft Tissue Plier - TP37", "Ora Craft Tissue Plier Angular 11.5cm TP37",
+     True, "Oracraft == Ora Craft (spacing)"),
+    ("Oracraft Warwick James Left (EWJL)", "Ora-Craft Warwick James Standard Root Elevator Left EWJL",
+     True, "Oracraft == Ora-Craft (hyphen)"),
+    # …but a genuinely different brand stays rejected even with a shared SKU code.
+    ("Oracraft Scalpel Handle With Scale #3 (10-130-03E)",
+     "GDC Scalpel Handle With Scale - No. 3 (10-130-03e)", False, "Oracraft != GDC"),
 ]
 
 

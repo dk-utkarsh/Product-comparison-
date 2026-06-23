@@ -142,6 +142,12 @@ def _brand_match(a: Attributes, search: str, found: str) -> bool:
         for w in _WORD_RE.findall(found.lower()):
             if w != a.brand and w.startswith(a.brand):
                 return True
+    # Spacing / hyphenation variant of the SAME brand: "Oracraft" == "Ora Craft"
+    # == "Ora-Craft" (pinkblue spells Ora Craft, DK spells Oracraft). Compare
+    # with all non-alphanumerics stripped. ≥4 chars so it stays brand-specific
+    # ("GDC" stays ≠ "Oracraft").
+    if len(a.brand) >= 4 and a.brand in re.sub(r"[^a-z0-9]", "", found.lower()):
+        return True
     return False
 
 
