@@ -925,3 +925,28 @@ decide the first optimization target.
 - **Per-run accuracy**: reviews now carry `run_id`; the runs list + detail show
   each run's accuracy (correct/reviewed), so accuracy can be tracked/compared
   across runs over time.
+
+### 2026-06-23 — SerpAPI discovery (isolated, opt-in) + first evaluation
+
+Built a SEPARATE Google/SerpAPI discovery path that does NOT touch /compare:
+- `app/serp.py`: one `google` search (using the BASE name so long titles still
+  match) → segregate organic results by `source`/domain → keep only real PRODUCT
+  pages (category/collection/brand listing pages filtered out) → pick the link
+  whose slug best matches the product. `site:<domain>` fallback for competitors
+  missing from the broad results.
+- `routes/serp.py`: `GET /serp/compare?name=` reuses our DK resolver + matcher
+  (select_variant + structured_match) and returns the SAME CompareResult shape,
+  so the existing UI could render it. `GET /serp/urls` for debugging.
+- Config: `serpapi_key`, `serp_enabled` (default off), `serp_site_fallback`.
+  Key in api/.env (gitignored). SerpAPI free tier = 100 searches/month.
+
+Finding (6-product A/B incl. long/generic names): SerpAPI returns clean real PDP
+links by source AND genuinely found a product the tool missed earlier (WHO
+probe). BUT on this sample the CURRENT TOOL ≥ SerpAPI: ties on 4, tool wins on 2
+(long descriptive names — SerpAPI still missed pinkblue). The brand/recall fixes
+already gave the tool strong coverage. SerpAPI is parked behind the flag (no UI
+wired yet) pending a larger A/B if we want broader-merchant coverage later.
+
+NEXT (tomorrow): decide whether to A/B SerpAPI on a bigger sheet via the review
+loop, or leave it parked; remaining review themes — cross-competitor variant
+alignment (generic names: pick the variant common to all competitors).

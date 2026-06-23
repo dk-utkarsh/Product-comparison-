@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     confirm_cosine: float = 0.80
     confirm_fuzz: float = 0.85
 
+    # ── SerpAPI discovery (isolated, opt-in) ───────────────
+    # A separate path: Google (via SerpAPI) finds each competitor's exact PDP by
+    # `source`/`link`, then our normal matcher verifies. Does NOT touch /compare.
+    serpapi_key: str = ""
+    serp_enabled: bool = False
+    serp_site_fallback: bool = True   # site:<domain> query for competitors missing from broad results
+
     # ── Scheduled SKU runs (DentalKart admin catalog API) ───
     dk_admin_products_url: str = "https://serverless-prod.dentalkart.com/api/v1/products/list/view"
     dk_admin_api_key: str = ""          # x-api-key for the admin product API
