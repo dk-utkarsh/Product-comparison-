@@ -15,6 +15,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from app.matching.attributes import extract_attributes
+
 # Known dental product categories — ordered longest-first to prefer
 # "diamond bur" over "bur" when both could match.
 _PRODUCT_TYPES: list[str] = [
@@ -257,6 +259,15 @@ def extract_smart_queries(name: str, ctx: ProductContext | None = None) -> list[
     for code in codes[:2]:
         add([brand, code])
         add([code])
+
+    # Q5b: model/SKU codes (incl. SHORT ones like TP37/AFX51A/CIB1 that _CODE_RE
+    # misses) — a code is brand-agnostic, so it surfaces the product even when a
+    # competitor spells the brand differently ("Oracraft" vs pinkblue's "Ora
+    # Craft"). Only real letter+digit SKU shapes (not microns/dims/suture codes).
+    for code in extract_attributes(name).model_codes:
+        if re.fullmatch(r"[a-z]{1,5}-?\d{1,4}[a-z]?", code) and code not in seen_codes:
+            seen_codes.add(code)
+            add([code])
 
     # Q6: SKU from context
     if ctx.sku:
