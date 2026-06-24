@@ -675,8 +675,15 @@
     <div class="card results-card">
       <div class="results-head">
         <h2>Scheduled Runs <span style="color:var(--ink-mute);font-weight:400;font-size:14px;margin-left:6px;">— 5×/day, fresh random SKUs from the catalog</span></h2>
-        <div style="display:flex;align-items:center;gap:10px;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <span class="results-summary" id="runs-summary"></span>
+          <label id="runSerpWrap" style="display:inline-flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;user-select:none;" title="Run each product through Google (SerpAPI) instead of our own search. Quota-limited, so the count is capped to 15.">
+            <span style="position:relative;display:inline-block;width:34px;height:20px;flex:0 0 auto;">
+              <input type="checkbox" id="runSerp" style="opacity:0;width:0;height:0;position:absolute;" />
+              <span id="runSerpKnob" style="position:absolute;inset:0;background:var(--line,#d2d2d7);border-radius:20px;transition:.18s;"></span>
+            </span>
+            🔍 Google
+          </label>
           <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-mute);">
             products
             <input id="runCount" type="number" min="1" max="200" value="50" style="width:64px;padding:6px 8px;" title="How many products this run pulls (watchlist + random). Max 200." />
@@ -684,6 +691,7 @@
           <button class="btn-primary" id="runNowBtn" style="padding:8px 16px;">Run now</button>
         </div>
       </div>
+      <div id="runs-serp-note" style="display:none;color:var(--ink-mute);font-size:12px;margin:-4px 0 10px;">🔍 Google mode is on — capped to <strong>15 products</strong> to protect the ~100 searches/month SerpAPI quota.</div>
       <div id="runs-list"></div>
     </div>
 
@@ -1513,13 +1521,32 @@ $("runNowBtn").addEventListener("click", async () => {
   const btn = $("runNowBtn");
   btn.disabled = true; btn.textContent = "Starting…";
   try {
-    const count = Math.max(1, Math.min(parseInt($("runCount").value, 10) || 50, 200));
-    await fetch(`/runs/trigger?count=${count}`, { method: "POST" });
+    const serp = $("runSerp").checked;
+    const cap = serp ? 15 : 200;
+    const count = Math.max(1, Math.min(parseInt($("runCount").value, 10) || (serp ? 10 : 50), cap));
+    if (serp && !confirm(`Run ${count} product(s) through Google (SerpAPI)?\n\nThis spends ~${count * 2} of your ~100 monthly Google searches.`)) {
+      return;
+    }
+    await fetch(`/runs/trigger?count=${count}${serp ? "&serp=1" : ""}`, { method: "POST" });
     setTimeout(loadRuns, 1500);
   } finally {
     setTimeout(() => { btn.disabled = false; btn.textContent = "Run now"; }, 2500);
   }
 });
+
+/* ── Google toggle on the Scheduled-Runs page ── */
+(function () {
+  const t = $("runSerp"), knob = $("runSerpKnob"), note = $("runs-serp-note"), count = $("runCount");
+  function paint() {
+    knob.style.background = t.checked ? "var(--accent,#0071e3)" : "var(--line,#d2d2d7)";
+    knob.innerHTML = `<span style="position:absolute;top:2px;left:${t.checked ? "16px" : "2px"};width:16px;height:16px;background:#fff;border-radius:50%;transition:.18s;box-shadow:0 1px 2px rgba(0,0,0,.3);"></span>`;
+    note.style.display = t.checked ? "block" : "none";
+    count.max = t.checked ? 15 : 200;
+    if (t.checked && (parseInt(count.value, 10) || 0) > 15) count.value = 10;
+  }
+  t.addEventListener("change", paint);
+  paint();
+})();
 
 refreshFeedbackCount();
 

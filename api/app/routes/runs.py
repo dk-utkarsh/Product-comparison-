@@ -60,10 +60,14 @@ def get_run(run_id: int) -> dict:
 
 
 @router.post("/trigger")
-async def trigger_run(count: int | None = None) -> dict:
+async def trigger_run(count: int | None = None, serp: bool = False) -> dict:
     # Fire-and-forget so the request returns immediately; the UI polls /runs.
     # `count` overrides the default run size (watchlist + random) for a one-off
-    # test of a custom number of products.
-    n = max(1, min(count, 200)) if count else None
-    asyncio.create_task(execute_run("manual", count=n))
-    return {"status": "started", "count": n}
+    # test of a custom number of products. `serp` runs each product through the
+    # Google/SerpAPI path — quota-limited, so the count is hard-capped small.
+    if serp:
+        n = max(1, min(count or 10, 15))   # protect the ~100 searches/month quota
+    else:
+        n = max(1, min(count, 200)) if count else None
+    asyncio.create_task(execute_run("manual-google" if serp else "manual", count=n, use_serp=serp))
+    return {"status": "started", "count": n, "via": "google" if serp else "standard"}

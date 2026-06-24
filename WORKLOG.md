@@ -143,6 +143,21 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-24 — Google toggle on Scheduled Runs + per-run accuracy
+
+- **Google (SerpAPI) toggle on the Scheduled-Runs page** (next to count + Run
+  now). ON → "Run now" runs each product through the SerpAPI path (`serp_compare`)
+  instead of `_compare_one`, stored as a normal run (trigger `manual-google`) and
+  viewable like any other. HARD-CAPPED to 15 products (and a confirm dialog) to
+  protect the ~100 searches/month free quota; UI caps the count box to 15 and
+  shows a quota note when the toggle is on. `POST /runs/trigger?count=N&serp=1`;
+  `execute_run(..., use_serp=True)`. Auto 5×/day runs stay on the standard path.
+- **Per-run accuracy now visible**: linked the 50 prior reviews (all `run_id`
+  NULL — submitted from the live view) to run #3, which they matched 50/50; it now
+  shows 56% in the runs list. Dropped the all-time-only header pill in favour of a
+  per-run emerald accuracy pill + a "N reviewed" count. Reviews submitted from an
+  opened run detail link to that run going forward (CURRENT_RUN_ID).
+
 ### 2026-06-24 — UI: Google/SerpAPI toggle, custom run-size, all-time accuracy visible
 
 - **Google (SerpAPI) toggle** in the Quick-search card. ON → the single search

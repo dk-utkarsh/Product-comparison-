@@ -87,13 +87,17 @@ async def _build_run_products(count: int | None = None) -> list:
 
 
 async def execute_run(trigger: str = "manual", products: list | None = None,
-                      source_run_id: int | None = None, count: int | None = None) -> int:
+                      source_run_id: int | None = None, count: int | None = None,
+                      use_serp: bool = False) -> int:
     """Run one batch: compare each product → persist. `products` (each with
     .sku/.name) lets a re-run replay an exact past set; otherwise watchlist +
-    random (`count` overrides the run size). Returns run_id."""
+    random (`count` overrides the run size). When `use_serp`, each product is
+    compared through the Google/SerpAPI discovery path instead of our own search
+    (quota-limited — keep the count small). Returns run_id."""
     # Imported lazily to avoid an import cycle (routes.compare imports heavy deps).
     from app.db import get_db
     from app.routes.compare import _compare_one, DkRow
+    from app.routes.serp import serp_compare
 
     s = get_settings()
     run_store.init_db()
@@ -104,7 +108,7 @@ async def execute_run(trigger: str = "manual", products: list | None = None,
     if products is None:
         products = await _build_run_products(count)
     run_id = run_store.create_run(started, trigger, len(products), source_run_id)
-    log.info("scheduled-run start", run_id=run_id, trigger=trigger, skus=len(products))
+    log.info("scheduled-run start", run_id=run_id, trigger=trigger, skus=len(products), serp=use_serp)
 
     db = None
     try:
@@ -117,7 +121,8 @@ async def execute_run(trigger: str = "manual", products: list | None = None,
     async def one(idx: int, prod) -> None:
         async with sem:
             try:
-                result = await _compare_one(DkRow(name=prod.name), db, budget)
+                result = (await serp_compare(prod.name) if use_serp
+                          else await _compare_one(DkRow(name=prod.name), db, budget))
                 run_store.save_item(run_id, idx, prod.sku, prod.name, result.model_dump())
             except Exception as e:  # one bad SKU must not kill the run
                 log.warning("run item failed", run_id=run_id, sku=prod.sku, error=str(e))
