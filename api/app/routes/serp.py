@@ -19,8 +19,8 @@ from app.routes.compare import (
     CompareResult,
     CompetitorMatch,
     DkRow,
-    _build_dk_result,
-    _pick_dk_child,
+    _dk_has_input_product,
+    _resolve_dk,
 )
 from app.scrapers.bridge import COMPETITORS, fetch_product
 
@@ -103,16 +103,16 @@ async def serp_urls(name: str) -> dict:
 async def serp_compare(name: str) -> CompareResult:
     cands = await serp.serp_product_candidates(name)
 
-    # DentalKart anchor — resolve its PDP (+ sub-variant) via our DK logic.
-    dk_match = None
-    dk_record = None
-    dk_url = (cands.get("dentalkart") or [None])[0]
-    if dk_url:
-        dk_pdp = await fetch_product("dentalkart", dk_url)
-        if dk_pdp is not None:
-            child = _pick_dk_child(name, dk_pdp.name, dk_pdp.variants) if dk_pdp.variants else None
-            dk_match, dk_record = _build_dk_result(dk_pdp, child, name)
-            dk_match.competitor_id, dk_match.competitor_name = "dentalkart", "Dentalkart"
+    # DentalKart anchor — resolve via OUR OWN DK search, NOT Google. Google's
+    # relevance often returns the wrong DK page (e.g. "Life Steriware … Storage
+    # Cabinet" for a "Life Stericab … UV Chamber"), and that page may even fail to
+    # fetch — leaving DK empty. DK's own site search nails it (₹8200 here). Google
+    # is only the better finder for the harder-to-search COMPETITORS below.
+    dk_match, dk_record = await _resolve_dk(DkRow(name=name))
+    if dk_match is not None and not _dk_has_input_product(name, dk_record):
+        dk_match, dk_record = None, None   # DK resolved to a different variant
+    if dk_match is not None:
+        dk_match.competitor_id, dk_match.competitor_name = "dentalkart", "Dentalkart"
 
     ref = dk_record if dk_record is not None else ProductRecord(name=name)
     dk_price = dk_match.matched_price if dk_match else None

@@ -143,6 +143,17 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-24 — SerpAPI path: resolve DK via our own search, not Google
+
+"Life Stericab Ultra Violet (UV) Chamber" came back with DK=NONE in the Google
+path: Google's top dentalkart result was the WRONG product ("Life Steriware …
+Storage Cabinet"), and that page even failed to fetch. But DK's own site search
+nails it (₹8200). Fix: `serp_compare` now resolves the DK anchor with `_resolve_dk`
+(+ `_dk_has_input_product` guard) exactly like /compare, and uses Google only for
+the harder-to-search COMPETITORS. Best of both: reliable DK + Google competitor
+recall. Life Stericab now: DK ₹8200 + oralkart 0.927 (pinkblue still a Google
+index gap).
+
 ### 2026-06-24 — Bulk upload honours Google toggle + persists as a run; Google runs distinguishable
 
 - **Bulk upload → Google**: the Quick-search Google toggle now also drives the
