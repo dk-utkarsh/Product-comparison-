@@ -67,6 +67,14 @@ def get_run(run_id: int) -> dict:
     return run
 
 
+@router.delete("/{run_id}")
+def delete_run(run_id: int) -> dict:
+    """Permanently delete a run (and its items + reviews)."""
+    if not run_store.delete_run(run_id):
+        raise HTTPException(status_code=404, detail="run not found")
+    return {"status": "deleted", "run_id": run_id}
+
+
 @router.post("/trigger")
 async def trigger_run(count: int | None = None, serp: bool = False) -> dict:
     # Fire-and-forget so the request returns immediately; the UI polls /runs.

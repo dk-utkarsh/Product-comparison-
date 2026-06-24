@@ -255,3 +255,13 @@ def prune(retention_days: int) -> int:
         )
         c.execute("DELETE FROM run_items WHERE run_id NOT IN (SELECT id FROM runs)")
         return cur.rowcount
+
+
+def delete_run(run_id: int) -> bool:
+    """Permanently delete one run and its items + reviews. Returns True if a run
+    was removed."""
+    with _conn() as c:
+        cur = c.execute("DELETE FROM runs WHERE id=?", (run_id,))
+        c.execute("DELETE FROM run_items WHERE run_id=?", (run_id,))
+        c.execute("DELETE FROM reviews WHERE run_id=?", (run_id,))
+        return cur.rowcount > 0

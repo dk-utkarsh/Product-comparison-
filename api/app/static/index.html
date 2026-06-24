@@ -1465,57 +1465,90 @@ function fmtRunTime(iso) {
   catch { return iso; }
 }
 
+let RUNS_ALL = [];
+let RUNS_PAGE = 0;
+const RUNS_PER_PAGE = 10;
+
 async function loadRuns() {
-  $("runs-list").innerHTML = `<div class="status-msg">Loading runs…</div>`;
+  if (!RUNS_ALL.length) $("runs-list").innerHTML = `<div class="status-msg">Loading runs…</div>`;
   try {
-    const r = await fetch("/runs");
-    const data = await r.json();
-    const runs = data.runs || [];
-    const reviewed = runs.filter((r) => r.review && r.review.reviewed).length;
-    $("runs-summary").innerHTML = `<span class="pill">${runs.length} runs</span>`
+    const data = await (await fetch("/runs")).json();
+    RUNS_ALL = data.runs || [];
+    const reviewed = RUNS_ALL.filter((r) => r.review && r.review.reviewed).length;
+    $("runs-summary").innerHTML = `<span class="pill">${RUNS_ALL.length} runs</span>`
       + (reviewed ? ` <span class="pill emerald" title="Runs with a human accuracy review">${reviewed} reviewed</span>` : "");
-    if (!runs.length) {
-      $("runs-list").innerHTML = `<div class="status-msg">No runs yet. They fire 5×/day automatically, or hit “Run now”.</div>`;
-      return;
-    }
-    const rows = runs.map((run) => {
-      const badge = run.status === "done" ? `<span class="pill emerald">done</span>`
-        : run.status === "running" ? `<span class="pill">running</span>`
-        : `<span class="pill rust">${enc(run.status)}</span>`;
-      const acc = run.review && run.review.reviewed
-        ? `<span class="pill emerald" title="${run.review.correct}/${run.review.reviewed} rows reviewed correct">${run.review.accuracy}%</span>`
-        : `<span style="color:var(--ink-mute);font-size:12px;" title="Open this run and review its rows to record accuracy">—</span>`;
-      const src = run.source_run_id ? ` <span style="color:var(--ink-mute);font-size:11px;">(of #${run.source_run_id})</span>` : "";
-      const isGoogle = (run.trigger || "").includes("google");
-      const trigBase = (run.trigger || "").replace("-google", "");
-      const trigCell = `${isGoogle ? `<span class="pill" style="background:var(--accent,#0071e3);color:#fff;font-size:11px;">🔍 Google</span> ` : ""}<span style="font-size:13px;">${enc(trigBase)}</span>${src}`;
-      return `
-        <tr style="${isGoogle ? "box-shadow:inset 3px 0 0 var(--accent,#0071e3);" : ""}">
-          <td class="col-num">#${run.id}</td>
-          <td style="cursor:pointer;" onclick="openRun(${run.id})"><div class="product-name">${fmtRunTime(run.started_at)}</div></td>
-          <td>${trigCell}</td>
-          <td>${badge}</td>
-          <td class="mono">${run.done_count}/${run.sku_count}</td>
-          <td>${acc}</td>
-          <td style="white-space:nowrap;">
-            <a href="#" class="cell-link" onclick="openRun(${run.id});return false;">view →</a>
-            &nbsp;·&nbsp;<a href="#" class="cell-link" onclick="rerunRun(${run.id}, false);return false;" title="Re-run the same products (standard search)">↻ re-run</a>
-            &nbsp;·&nbsp;<a href="#" class="cell-link" onclick="rerunRun(${run.id}, true);return false;" title="Re-run the same products via Google (SerpAPI) — capped 15 products">🔍 Google</a>
-            ${run.source_run_id ? `&nbsp;·&nbsp;<a href="#" class="cell-link" style="font-weight:600;" onclick="compareRuns(${run.id});return false;" title="Compare this re-run against its source run #${run.source_run_id}">⇄ compare</a>` : ""}
-          </td>
-        </tr>`;
-    }).join("");
-    $("runs-list").innerHTML = `
-      <div style="overflow-x:auto;">
-        <table class="compare-table">
-          <thead><tr><th>#</th><th>Run time</th><th>Trigger</th><th>Status</th><th>SKUs</th><th>Accuracy</th><th></th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
+    renderRunsPage();
   } catch (e) {
     $("runs-list").innerHTML = `<div class="status-msg">Failed to load runs: ${enc(e.message)}</div>`;
   }
 }
+
+function runRowHTML(run) {
+  const badge = run.status === "done" ? `<span class="pill emerald">done</span>`
+    : run.status === "running" ? `<span class="pill">running</span>`
+    : `<span class="pill rust">${enc(run.status)}</span>`;
+  const acc = run.review && run.review.reviewed
+    ? `<span class="pill emerald" title="${run.review.correct}/${run.review.reviewed} rows reviewed correct">${run.review.accuracy}%</span>`
+    : `<span style="color:var(--ink-mute);font-size:12px;" title="Open this run and review its rows to record accuracy">—</span>`;
+  const src = run.source_run_id ? ` <span style="color:var(--ink-mute);font-size:11px;">(of #${run.source_run_id})</span>` : "";
+  const isGoogle = (run.trigger || "").includes("google");
+  const trigBase = (run.trigger || "").replace("-google", "");
+  const trigCell = `${isGoogle ? `<span class="pill" style="background:var(--accent,#0071e3);color:#fff;font-size:11px;">🔍 Google</span> ` : ""}<span style="font-size:13px;">${enc(trigBase)}</span>${src}`;
+  return `
+    <tr style="${isGoogle ? "box-shadow:inset 3px 0 0 var(--accent,#0071e3);" : ""}">
+      <td class="col-num">#${run.id}</td>
+      <td style="cursor:pointer;" onclick="openRun(${run.id})"><div class="product-name">${fmtRunTime(run.started_at)}</div></td>
+      <td>${trigCell}</td>
+      <td>${badge}</td>
+      <td class="mono">${run.done_count}/${run.sku_count}</td>
+      <td>${acc}</td>
+      <td style="white-space:nowrap;">
+        <a href="#" class="cell-link" onclick="openRun(${run.id});return false;">view →</a>
+        &nbsp;·&nbsp;<a href="#" class="cell-link" onclick="rerunRun(${run.id}, false);return false;" title="Re-run the same products (standard search)">↻ re-run</a>
+        &nbsp;·&nbsp;<a href="#" class="cell-link" onclick="rerunRun(${run.id}, true);return false;" title="Re-run the same products via Google (SerpAPI) — capped 15 products">🔍 Google</a>
+        ${run.source_run_id ? `&nbsp;·&nbsp;<a href="#" class="cell-link" style="font-weight:600;" onclick="compareRuns(${run.id});return false;" title="Compare this re-run against its source run #${run.source_run_id}">⇄ compare</a>` : ""}
+        &nbsp;·&nbsp;<a href="#" class="cell-link" style="color:var(--rust,#b04a2f);" onclick="deleteRun(${run.id});return false;" title="Permanently delete this run">🗑 delete</a>
+      </td>
+    </tr>`;
+}
+
+function renderRunsPage() {
+  if (!RUNS_ALL.length) {
+    $("runs-list").innerHTML = `<div class="status-msg">No runs yet. They fire 5×/day automatically, or hit “Run now”.</div>`;
+    return;
+  }
+  const pages = Math.ceil(RUNS_ALL.length / RUNS_PER_PAGE);
+  RUNS_PAGE = Math.min(Math.max(0, RUNS_PAGE), pages - 1);
+  const start = RUNS_PAGE * RUNS_PER_PAGE;
+  const rows = RUNS_ALL.slice(start, start + RUNS_PER_PAGE).map(runRowHTML).join("");
+  const pager = pages > 1 ? `
+    <div style="display:flex;gap:10px;align-items:center;justify-content:center;margin-top:12px;font-size:13px;">
+      <button class="btn-ghost" style="padding:6px 12px;" ${RUNS_PAGE === 0 ? "disabled" : ""} onclick="gotoRunsPage(${RUNS_PAGE - 1})">← Prev</button>
+      <span>Page <strong>${RUNS_PAGE + 1}</strong> of ${pages} <span style="color:var(--ink-mute);">· ${RUNS_ALL.length} runs</span></span>
+      <button class="btn-ghost" style="padding:6px 12px;" ${RUNS_PAGE >= pages - 1 ? "disabled" : ""} onclick="gotoRunsPage(${RUNS_PAGE + 1})">Next →</button>
+    </div>` : "";
+  $("runs-list").innerHTML = `
+    <div style="overflow-x:auto;">
+      <table class="compare-table">
+        <thead><tr><th>#</th><th>Run time</th><th>Trigger</th><th>Status</th><th>SKUs</th><th>Accuracy</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>${pager}`;
+}
+function gotoRunsPage(n) { RUNS_PAGE = n; renderRunsPage(); }
+window.gotoRunsPage = gotoRunsPage;
+
+async function deleteRun(id) {
+  if (!confirm(`Permanently delete run #${id} and its results + reviews?\n\nThis cannot be undone.`)) return;
+  try {
+    const r = await fetch(`/runs/${id}`, { method: "DELETE" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    RUNS_ALL = RUNS_ALL.filter((x) => x.id !== id);   // drop locally for instant feedback
+    renderRunsPage();
+    loadRuns();   // resync counts/summary
+  } catch (e) { alert("Failed to delete run: " + e.message); }
+}
+window.deleteRun = deleteRun;
 
 async function openRun(id) {
   const card = $("run-detail-card");
