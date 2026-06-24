@@ -1599,11 +1599,27 @@ async function rerunRun(id, serp) {
   const via = serp ? "Google (SerpAPI)" : "standard search";
   const note = serp ? "\n\nGoogle mode is capped to 15 products and spends ~2 of your ~100 monthly searches each." : "";
   if (!confirm(`Re-run the same products as run #${id} via ${via}?${note}`)) return;
+  const maxIdBefore = Math.max(0, ...RUNS_ALL.map((r) => r.id));
   try {
     const r = await fetch(`/runs/${id}/rerun${serp ? "?serp=1" : ""}`, { method: "POST" });
     const d = await r.json();
-    alert(`Re-run started (${via}) for ${d.products} products. It'll appear at the top — then use “⇄ compare” on it to diff against #${id}.`);
-    setTimeout(loadRuns, 2000);
+    if (serp) {
+      // Auto-open the Standard-vs-Google comparison when the new run finishes —
+      // no hunting for it. The backend pins the comparison base to the nearest
+      // standard ancestor, so this is always Standard (L) vs Google (R).
+      $("runs-summary").innerHTML = `<span class="pill emerald">🔍 Google re-run started (${d.products} products) — will open the comparison vs #${d.source_run_id} when done…</span>`;
+      let ticks = 0;
+      const poll = setInterval(async () => {
+        ticks++;
+        await loadRuns();
+        const fresh = RUNS_ALL.find((x) => x.id > maxIdBefore && (x.trigger || "").includes("google"));
+        if (fresh && fresh.status === "done") { clearInterval(poll); compareRuns(fresh.id); }
+        else if (ticks > 100) clearInterval(poll);
+      }, 3000);
+    } else {
+      alert(`Re-run started (${via}) for ${d.products} products. It'll appear at the top.`);
+      setTimeout(loadRuns, 2000);
+    }
   } catch (e) {
     alert("Failed to start re-run: " + e.message);
   }

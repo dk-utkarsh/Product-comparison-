@@ -51,11 +51,25 @@ async def rerun(run_id: int, serp: bool = False) -> dict:
         raise HTTPException(status_code=400, detail="run has no products to replay")
     if serp:
         products = products[:15]   # protect the ~100 searches/month quota
+
+    # The comparison base = the nearest STANDARD ancestor, so a Google re-run
+    # always diffs as Standard vs Google — even when launched from a run that is
+    # itself a Google run (otherwise you'd get a confusing Google-vs-Google diff).
+    source = run_id
+    if serp:
+        cur = run
+        seen = set()
+        while cur and "google" in (cur.get("trigger") or "") and cur.get("source_run_id") not in (None, *seen):
+            seen.add(cur["id"])
+            cur = run_store.get_run(cur["source_run_id"])
+        if cur and "google" not in (cur.get("trigger") or ""):
+            source = cur["id"]
+
     asyncio.create_task(execute_run(
         "rerun-google" if serp else "rerun",
-        products=products, source_run_id=run_id, use_serp=serp,
+        products=products, source_run_id=source, use_serp=serp,
     ))
-    return {"status": "started", "products": len(products), "source_run_id": run_id,
+    return {"status": "started", "products": len(products), "source_run_id": source,
             "via": "google" if serp else "standard"}
 
 
