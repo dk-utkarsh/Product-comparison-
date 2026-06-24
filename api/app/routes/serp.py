@@ -50,6 +50,17 @@ async def _match_competitor(cid: str, cname: str, url: str | None,
     tri = triage_batch(ref.name, [rec.name])
     score = max(tri[0].score if tri else 0.0, sm.features.cosine)
     verdict = "confirmed" if sm.verdict is StructuredVerdict.CONFIRMED else "possible"
+    # SerpAPI already pinned this EXACT PDP on the competitor's own site, and it
+    # cleared both the gates and the structured match (not REJECTED) — three
+    # independent identity checks. That discovery signal is strong, so surface
+    # even a moderate-cosine "possible" match instead of letting the UI's 0.70
+    # confidence cutoff hide it. Otherwise a correct sub-variant whose name is
+    # merely reworded (pinkblue "Ora Craft Screening Single End (WHO Probe)" vs
+    # "Oracraft … WHO Screening Probe #3 - PCP11.5B", cosine ~0.68) is dropped.
+    # The true cosine is still carried in `cosine` for transparency. The
+    # precision guard is the gate (brand / model-code / tip), which already
+    # rejects the wrong sibling ("…Probe #3 - EXS6") before we get here.
+    score = max(score, 0.70)
     diff = round(dk_price - rec.price, 2) if dk_price and rec.price else None
     return CompetitorMatch(
         competitor_id=cid, competitor_name=cname, candidates_seen=1,

@@ -594,7 +594,20 @@ async def _resolve_dk(row: DkRow) -> tuple[CompetitorMatch | None, ProductRecord
     cur_fuzz = fuzz_ratio(
         normalize_for_match(row.name), normalize_for_match(dk_match.matched_name or "")
     )
-    if cur_fuzz < 0.9:
+    # token_set_ratio is "tolerant of extra tokens on either side", so a standalone
+    # that is a near-SUBSET of the input — e.g. "Oracraft Single Ended Probe #3 -
+    # EXS6" vs the input "…WHO Screening Probe #3 - PCP11.5B" — reads ~0.93 even
+    # though it MISSES the input's distinctive tokens (WHO / Screening / PCP11).
+    # Those leftover tokens usually name the real product, which DK often carries
+    # as a CHILD of a grouped parent ("Oracraft Periodontal Probes"). So look for a
+    # better child whenever the current match lacks input tokens too, not only when
+    # the fuzz reads low. (_resolve_by_child_name still only adopts a child that
+    # STRICTLY beats the current match and passes the gates, so this can't demote a
+    # genuinely exact standalone.)
+    missing = distinguishing_tokens(normalize_for_match(row.name)) - distinguishing_tokens(
+        normalize_for_match(dk_match.matched_name or "")
+    )
+    if cur_fuzz < 0.9 or missing:
         better = await _resolve_by_child_name(dk_raw, row.name, cur_fuzz)
         if better is not None:
             return better

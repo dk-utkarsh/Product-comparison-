@@ -143,6 +143,50 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-24 — WHO-probe deep dive: selective loosening (grouped-child + SKU-code + brand inheritance + SerpAPI display)
+
+Driven by the example "Oracraft Single Ended WHO Screening Probe #3 - PCP11.5B"
+and the user's insight that SerpAPI *finds* the right PDP but our strict logic
+sometimes *bypasses* it. Diagnosed three distinct failure modes and fixed each on
+a broad level (26/26 regression, incl. 4 new WHO-probe cases):
+
+- **A. DK grouped-child resolution.** `fuzz_ratio` is `token_set_ratio`, which is
+  "tolerant of extra tokens on either side", so a standalone that is a near-SUBSET
+  of the input ("…Probe #3 - EXS6" vs "…WHO Screening Probe #3 - PCP11.5B") reads
+  0.928 and blocked the correct grouped child. `_resolve_dk` now also looks for a
+  better child when the current match is *missing the input's distinctive tokens*
+  (not only when fuzz is low). DK now resolves WHO→₹220, Thin Willam→₹195,
+  EXS6→its own standalone — each to its correct distinct product.
+  (`routes/compare.py`)
+- **C. SKU-tail code discriminator.** `_MODEL_RE` needs ≥2 digits, so 1-digit
+  catalog codes (EXS6, POW6, EXD5) were invisible and the two-sided model-code
+  gate never fired. Added `_SKU_RE` = 3+ contiguous letters + digit(s) (SKU-like;
+  excludes digit-first sizes "15g", 1-letter shades "A3", spaced "No 6", "Pack of
+  5", with a small word guard). Now PCP11.5B ≠ EXS6 ≠ EXA6 ≠ POW6 — the wrong
+  near-duplicate sibling is gated out. (`matching/attributes.py`)
+- **D. Brand inheritance parent→child (broad bug A exposed).** Competitors often
+  put the brand only on the PARENT PDP ("Maarc Articulating Paper") while variant
+  labels drop it ("Articulating Paper 40μ - Blue & Red"). Selecting a child lost
+  the brand and the brand gate wrongly rejected a correct sub-variant. `select_
+  variant` now carries the parent brand onto the chosen child. Maarc 40µ Blue&Red:
+  base 0.78 → correct sub-variant **0.914**. (`pipeline.py`)
+- **B. SerpAPI display floor.** In the isolated `/serp` path, a gate-clean,
+  non-REJECTED match from a Google-pinned PDP is now surfaced past the UI's 0.70
+  cutoff (true cosine kept in `cosine`). pinkblue's reworded WHO probe (cosine
+  0.68) now shows; the wrong EXS6 sibling stays out via the gate. (`routes/serp.py`)
+
+WHO-probe end-to-end now: DK ₹220 ✓ · pinkblue WHO probe shown ✓ · oralkart EXS6
+correctly absent ✓. 100-sheet diff: the ±3 movement is live-scrape variance (each
+"lost" pinkblue returns ≥0.78 when re-run individually; none are code-gated) plus
+a real +1 (Ethicon Mersilk).
+
+NEXT: the user's SerpAPI-intelligence spec — rank candidate PDPs per competitor by
+Google page-order, brand-gate first, then name word/char overlap, then serial-code
+discrimination (steps 6–8 already covered by the gate/attributes work above),
+then sub-variant + packaging/description. Build = collect ALL per-domain SerpAPI
+candidates (not just best-slug) and run them through the matcher, preferring
+earlier rank on ties.
+
 ### 2026-06-23 — Tip-number discriminator + pricing insights + per-product insight & price history
 
 - **Instrument tip number** (`attributes`/`gates`/`structured`). A hand-instrument

@@ -49,6 +49,16 @@ GATE_CASES = [
     # …but a genuinely different brand stays rejected even with a shared SKU code.
     ("Oracraft Scalpel Handle With Scale #3 (10-130-03E)",
      "GDC Scalpel Handle With Scale - No. 3 (10-130-03e)", False, "Oracraft != GDC"),
+    # Single-digit SKU tails (EXS6/POW6/PCP11) discriminate near-identical probes:
+    # the WHO screening probe (PCP11.5B) is NOT the plain or thin-william probe.
+    ("Oracraft Single Ended WHO Screening Probe #3 - PCP11.5B",
+     "Oracraft Single Ended Probe #3 - EXS6", False, "PCP11.5B != EXS6 (different probe)"),
+    ("Oracraft Single Ended WHO Screening Probe #3 - PCP11.5B",
+     "Oracraft Single Ended Thin Willam Probe #3 - POW6", False, "PCP11.5B != POW6"),
+    # …yet a competitor that drops the code but keeps the distinctive words still
+    # matches (codes are one-sided → gate must not fire).
+    ("Oracraft Single Ended WHO Screening Probe #3 - PCP11.5B",
+     "Ora Craft Screening Single End (WHO Probe)", True, "WHO probe, code dropped"),
 ]
 
 

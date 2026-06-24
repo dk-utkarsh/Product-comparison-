@@ -25,6 +25,7 @@ from app.matching.structured import (
     StructuredVerdict,
     structured_match,
 )
+from app.matching.attributes import extract_brand
 from app.matching.normalize import normalize_for_match
 from app.matching.tokens import distinguishing_tokens, fuzz_ratio
 from app.matching.triage import TriageResult, triage_batch
@@ -161,7 +162,19 @@ def select_variant(
     # Show the resolved sub-variant name (default) when the input named it —
     # e.g. "…016 X 022 Short Upper". A base input keeps the base name.
     if chosen.get("name") and pins_by_name:
-        cp.name = str(chosen["name"])
+        child_name = str(chosen["name"])
+        # Brands frequently live only on the PARENT PDP ("Maarc Articulating
+        # Paper") while the variant labels drop them ("Articulating Paper 40μ -
+        # Blue & Red"). Replacing the name with the bare child would lose the
+        # brand and trip the brand gate (rejecting a correct sub-variant), so
+        # carry the parent's brand over when the child omits it — this also makes
+        # the displayed sub-variant name self-describing ("Maarc … 40μ …").
+        brand = extract_brand(cp.name)
+        if brand and brand not in normalize_for_match(child_name):
+            lead = cp.name.strip().split()
+            if lead:
+                child_name = f"{lead[0]} {child_name}"
+        cp.name = child_name
 
 
 def _canonical_key(cand: CompetitorProduct) -> str:

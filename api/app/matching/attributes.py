@@ -27,6 +27,16 @@ class Attributes:
 
 
 _MODEL_RE = re.compile(r"\b([a-z]{1,5}-?\d{2,5}[a-z]?)\b", re.IGNORECASE)
+# Alpha-prefixed SKU/catalog tail code that _MODEL_RE misses because it has a
+# SINGLE digit, e.g. "EXS6", "POW6", "EXD5" (Oracraft probes), "PCP11". Requiring
+# 3+ CONTIGUOUS letters then digit(s) keeps it SKU-like and excludes sizes
+# ("15g" is digit-first), shades ("A3" is one letter) and spaced numbers
+# ("No 6", "Pack of 5"). Distinct codes here are a hard discriminator: the WHO
+# probe "PCP11.5B" and the plain probe "EXS6" are different instruments that
+# otherwise read as near-duplicates ("…Single Ended Probe #3"). A small word
+# guard drops common word+digit tokens that aren't codes.
+_SKU_RE = re.compile(r"\b([a-z]{3,5})(\d{1,4}[a-z]?)\b", re.IGNORECASE)
+_SKU_STOP = {"type", "size", "pack", "pair", "step", "size", "grit", "part"}
 # Small instrument tip/size designator — "#6", "No. 3", "Excavator -1", "- 6".
 # Distinguishes hand-instrument tips that share the SAME model code
 # (GDC "…-1 EXC32L" vs "…- 6 EXC32L"). A hyphen designator must be SPACE-
@@ -118,6 +128,11 @@ def extract_attributes(name: str) -> Attributes:
         pack_count = int(pm.group(1) or pm.group(2))
 
     model_codes = [m.group(1).lower() for m in _MODEL_RE.finditer(name)]
+    model_codes += [
+        (m.group(1) + m.group(2)).lower()
+        for m in _SKU_RE.finditer(name)
+        if m.group(1).lower() not in _SKU_STOP
+    ]
     model_codes += [f"{m.group(1)}-0" for m in _SUTURE_RE.finditer(name)]
     model_codes += [f"{m.group(1)}x{m.group(2)}" for m in _DIM_INT_RE.finditer(name)]
     model_codes += [f"{m.group(1)}u" for m in _MICRON_RE.finditer(name)]
