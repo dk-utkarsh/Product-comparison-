@@ -866,7 +866,7 @@ async function runBatch(file) {
   // Read NDJSON progress stream: {start} … {result} … {done}
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let buf = "", total = 0;
+  let buf = "", total = 0, batchRunId = null;
   const byIndex = [];
   try {
     while (true) {
@@ -882,6 +882,7 @@ async function runBatch(file) {
         try { evt = JSON.parse(line); } catch { continue; }
         if (evt.type === "start") {
           total = evt.total;
+          batchRunId = evt.run_id ?? null;   // this upload is persisted as a run
           $("lt-progress").textContent = `0 / ${total}`;
         } else if (evt.type === "result") {
           byIndex[evt.index] = evt.result;
@@ -902,8 +903,11 @@ async function runBatch(file) {
   $("loading-section").style.display = "none";
   $("upload-section").style.display = "block";
   const bBadge = serp ? ` <span class="label" style="background:var(--accent,#0071e3);color:#fff;padding:1px 8px;border-radius:10px;font-size:11px;">🔍 via Google (first 15)</span>` : "";
-  $("status").innerHTML = `<span class="status-msg ok">Done — searched ${results.length} ${results.length === 1 ? "product" : "products"} in ${elapsed}s.</span>${bBadge} <span style="color:var(--ink-mute);font-size:12px;">Saved to Scheduled Runs.</span>`;
+  $("status").innerHTML = `<span class="status-msg ok">Done — searched ${results.length} ${results.length === 1 ? "product" : "products"} in ${elapsed}s.</span>${bBadge} <span style="color:var(--ink-mute);font-size:12px;">Saved to Scheduled Runs — review below to record accuracy.</span>`;
   renderResults({ total: results.length, results }, elapsed);
+  // renderResults clears CURRENT_RUN_ID; re-point it at the persisted upload run
+  // so the accuracy review below links to it (and shows in the run history).
+  if (batchRunId) CURRENT_RUN_ID = batchRunId;
 }
 
 /* ── Single quick search ─────────────── */
