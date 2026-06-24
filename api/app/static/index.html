@@ -1668,8 +1668,20 @@ async function compareRuns(rerunId) {
       // sides (L/R) like the competitor columns — not just the source run.
       const dkOf = (r) => { const m = r && r.dentalkart_match; return m ? { name: m.matched_name, price: m.matched_price, score: null, url: m.matched_url, image: m.matched_image } : null; };
       const dkCell = _cmpCell(dkOf(ra), dkOf(rb));
-      return `<tr><td class="col-num">${i + 1}</td><td><div class="product-name" style="font-size:12px;max-width:none;word-break:break-word;overflow-wrap:anywhere;">${enc(nm)}</div></td>${dkCell}${cells}</tr>`;
+      const review = `
+        <div style="margin-top:7px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <span style="font-size:11px;color:var(--ink-mute);font-weight:600;">R correct?</span>
+          <button class="btn-ghost" id="rv-ok-${i}" title="R's matches are correct" onclick="markReview(${i}, true)" style="font-size:12px;padding:2px 9px;">✓</button>
+          <button class="btn-ghost" id="rv-no-${i}" title="R is wrong — add a note" onclick="markReview(${i}, false)" style="font-size:12px;padding:2px 9px;">✗</button>
+        </div>
+        <textarea id="rv-msg-${i}" placeholder="What's wrong with R / how to improve…" style="display:none;width:100%;margin-top:6px;font-size:12px;min-height:40px;"></textarea>`;
+      return `<tr><td class="col-num">${i + 1}</td><td><div class="product-name" style="font-size:12px;max-width:none;word-break:break-word;overflow-wrap:anywhere;">${enc(nm)}</div>${review}</td>${dkCell}${cells}</tr>`;
     }).join("");
+    // Make this comparison reviewable: the accuracy review records against the R
+    // run (the one being evaluated), aligned row-for-row with the table above.
+    CURRENT_RESULTS = names.map((nm) => B[nm]);
+    REVIEWS = {};
+    CURRENT_RUN_ID = rer.id;
     $("run-detail-title").textContent = `Compare · ${labL} #${src.id}  vs  ${labR} #${rer.id}`;
     $("run-detail-summary").innerHTML = `
       <span class="pill">${names.length} products run by both</span>
@@ -1686,7 +1698,14 @@ async function compareRuns(rerunId) {
         <span style="background:rgba(190,120,40,.12);padding:1px 5px;border-radius:4px;">amber</span> = L found / price differs.
         ${onlyL.length ? `<br><strong>Only comparing the ${names.length} products both runs ran.</strong> ${onlyL.length} product(s) are in #${src.id} but were not in #${rer.id} (a Google re-run is capped at 15), so they're excluded — they were never tested by ${labR}, not "missed".` : ""}
       </div>
-      <div style="overflow-x:auto;"><table class="compare-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+      <div style="overflow-x:auto;"><table class="compare-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="card" id="review-bar" style="margin-top:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+        <strong>Accuracy review</strong>
+        <span style="color:var(--ink-mute);font-size:13px;">Mark each row's <strong>R</strong> (${labR} #${rer.id}) result ✓ correct or ✗ needs-fix, then submit — records accuracy for run #${rer.id}.</span>
+        <span class="pill" id="review-progress">0 reviewed</span>
+        <button class="btn-primary" onclick="submitReviews()" style="padding:8px 16px;">Submit &amp; calculate accuracy</button>
+        <div id="accuracy-result" style="flex-basis:100%;"></div>
+      </div>`;
   } catch (e) {
     $("run-detail").innerHTML = `<div class="status-msg">Failed to load comparison: ${enc(e.message)}</div>`;
   }
