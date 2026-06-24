@@ -143,6 +143,22 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-24 — Bulk upload honours Google toggle + persists as a run; Google runs distinguishable
+
+- **Bulk upload → Google**: the Quick-search Google toggle now also drives the
+  batch upload. `POST /compare/batch-stream?serp=1` routes each product through
+  `serp_compare`, capped to the first 15 (`_SERP_BATCH_CAP`) for quota; the UI
+  confirms the cost first and badges the result "🔍 via Google (first 15)".
+- **Uploads persist as runs**: every batch upload now creates a run
+  (`trigger=upload` / `upload-google`), saving each item as it completes and
+  finishing on stream end — so a main-page bulk test shows up in the Scheduled-
+  Runs history (reviewable / re-runnable / comparable) like any other run.
+- **Google runs distinguishable**: runs list shows a blue "🔍 Google" pill + a
+  left accent border for any google-trigger run; the run detail header shows
+  "🔍 Google (SerpAPI)" vs "Standard search".
+- Replaced the SerpAPI key (old one near quota; one invalid key rejected, final
+  valid key has a fresh 250/month). Keys live only in api/.env (gitignored).
+
 ### 2026-06-24 — "Look deeper on a near-name": container ≠ kit + hard price ceiling
 
 Case: "Julldent Zygo Box" (storage box, ₹2399) matched Oralkart "Julldent Zygo

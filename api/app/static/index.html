@@ -828,10 +828,16 @@ input.addEventListener("change", () => {
 });
 
 async function runBatch(file) {
+  const serp = $("serpToggle").checked;
+  if (serp && !confirm("Run this sheet through Google (SerpAPI)?\n\nGoogle mode is capped to the first 15 products and spends ~2 of your monthly searches each (~30 total). The rest of the sheet is ignored in Google mode.")) {
+    setIdle();
+    return;
+  }
   const conc = parseInt($("concurrency").value, 10) || 2;
   $("lt-conc").textContent = conc;
   $("lt-progress").textContent = "—";
-  logLine(`runBatch ${file.name} (${file.size} bytes) concurrency=${conc}`);
+  if (serp) $("lt-sub").textContent = "Google (SerpAPI) is finding each competitor's exact product page (first 15 products), then our matcher verifies.";
+  logLine(`runBatch ${file.name} (${file.size} bytes) concurrency=${conc} serp=${serp}`);
   setRunning("batch", file.name.replace(/\.(xlsx|xlsm|csv)$/i, ""));
 
   currentAbort = new AbortController();
@@ -840,7 +846,7 @@ async function runBatch(file) {
 
   let res;
   try {
-    res = await fetch(`/compare/batch-stream?concurrency=${conc}`, {
+    res = await fetch(`/compare/batch-stream?concurrency=${conc}${serp ? "&serp=1" : ""}`, {
       method: "POST", body: fd, signal: currentAbort.signal,
     });
   } catch (e) {
@@ -894,7 +900,8 @@ async function runBatch(file) {
   stopFacts();
   $("loading-section").style.display = "none";
   $("upload-section").style.display = "block";
-  $("status").innerHTML = `<span class="status-msg ok">Done — searched ${results.length} ${results.length === 1 ? "product" : "products"} in ${elapsed}s.</span>`;
+  const bBadge = serp ? ` <span class="label" style="background:var(--accent,#0071e3);color:#fff;padding:1px 8px;border-radius:10px;font-size:11px;">🔍 via Google (first 15)</span>` : "";
+  $("status").innerHTML = `<span class="status-msg ok">Done — searched ${results.length} ${results.length === 1 ? "product" : "products"} in ${elapsed}s.</span>${bBadge} <span style="color:var(--ink-mute);font-size:12px;">Saved to Scheduled Runs.</span>`;
   renderResults({ total: results.length, results }, elapsed);
 }
 
@@ -1445,11 +1452,14 @@ async function loadRuns() {
         ? `<span class="pill emerald" title="${run.review.correct}/${run.review.reviewed} rows reviewed correct">${run.review.accuracy}%</span>`
         : `<span style="color:var(--ink-mute);font-size:12px;" title="Open this run and review its rows to record accuracy">—</span>`;
       const src = run.source_run_id ? ` <span style="color:var(--ink-mute);font-size:11px;">(of #${run.source_run_id})</span>` : "";
+      const isGoogle = (run.trigger || "").includes("google");
+      const trigBase = (run.trigger || "").replace("-google", "");
+      const trigCell = `${isGoogle ? `<span class="pill" style="background:var(--accent,#0071e3);color:#fff;font-size:11px;">🔍 Google</span> ` : ""}<span style="font-size:13px;">${enc(trigBase)}</span>${src}`;
       return `
-        <tr>
+        <tr style="${isGoogle ? "box-shadow:inset 3px 0 0 var(--accent,#0071e3);" : ""}">
           <td class="col-num">#${run.id}</td>
           <td style="cursor:pointer;" onclick="openRun(${run.id})"><div class="product-name">${fmtRunTime(run.started_at)}</div></td>
-          <td>${enc(run.trigger)}${src}</td>
+          <td>${trigCell}</td>
           <td>${badge}</td>
           <td class="mono">${run.done_count}/${run.sku_count}</td>
           <td>${acc}</td>
@@ -1491,7 +1501,9 @@ async function openRun(id) {
     const acc = run.review && run.review.reviewed
       ? `<span class="pill emerald">Accuracy ${run.review.accuracy}% (${run.review.correct}/${run.review.reviewed})</span>`
       : `<span class="pill">not reviewed yet</span>`;
+    const viaGoogle = (run.trigger || "").includes("google");
     $("run-detail-summary").innerHTML = `
+      ${viaGoogle ? `<span class="pill" style="background:var(--accent,#0071e3);color:#fff;">🔍 Google (SerpAPI)</span>` : `<span class="pill">Standard search</span>`}
       <span class="pill">${results.length} products</span>
       <span class="pill">${hits} matches</span>
       ${acc}`;

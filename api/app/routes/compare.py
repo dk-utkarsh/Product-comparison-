@@ -13,6 +13,7 @@ UI hits POST /compare for one row or POST /compare-batch for an xlsx.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import csv
 import io
 import json
@@ -905,24 +906,45 @@ async def compare_batch(
     return CompareBatchResponse(total=len(results), results=results)
 
 
+_SERP_BATCH_CAP = 15  # max products per Google/SerpAPI batch (protects the quota)
+
+
 @router.post("/batch-stream")
 async def compare_batch_stream(
     file: UploadFile = File(...),
     concurrency: int = 2,
+    serp: bool = False,
 ) -> StreamingResponse:
     """Same as /batch, but streams NDJSON progress so the UI can show
     'searched X of N' live. Emits one line per event:
       {"type":"start","total":N}
       {"type":"result","index":i,"done":k,"total":N,"result":{...}}  (completion order)
       {"type":"done","total":N}
+    `serp` routes every product through the Google/SerpAPI discovery path instead
+    of our own search — quota-limited, so the upload is capped to the first N rows.
     """
     content = await file.read()
     rows = _parse_dk_upload(file.filename or "", content)
     if not rows:
         raise HTTPException(status_code=400, detail="no usable rows in the uploaded file")
+    if serp:
+        rows = rows[:_SERP_BATCH_CAP]
 
     async def stream() -> AsyncIterator[str]:
-        yield json.dumps({"type": "start", "total": len(rows)}) + "\n"
+        # Persist this upload as a run so it shows in the Scheduled-Runs history
+        # (reviewable / re-runnable / comparable) like any other run.
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        from app import run_store
+        s = get_settings()
+        run_store.init_db()
+        tz = ZoneInfo(s.scheduled_run_tz)
+        run_id = run_store.create_run(
+            datetime.now(tz).isoformat(timespec="seconds"),
+            "upload-google" if serp else "upload", len(rows), None,
+        )
+        yield json.dumps({"type": "start", "total": len(rows),
+                          "via": "google" if serp else "standard", "run_id": run_id}) + "\n"
 
         db: Database | None
         try:
@@ -934,23 +956,39 @@ async def compare_batch_stream(
 
         async def gated(i: int, r: DkRow) -> tuple[int, CompareResult]:
             async with sem:
+                if serp:
+                    # Lazy import avoids an import cycle (serp imports from compare).
+                    from app.routes.serp import serp_compare
+                    return i, await serp_compare(r.name)
                 return i, await _compare_one(r, db, budget)
 
         tasks = [asyncio.create_task(gated(i, r)) for i, r in enumerate(rows)]
         done = 0
+        status = "done"
         try:
             for fut in asyncio.as_completed(tasks):
                 i, res = await fut
                 done += 1
+                payload = res.model_dump()
+                try:
+                    run_store.save_item(run_id, i, "", rows[i].name, payload)
+                except Exception:  # persistence is best-effort, never break the stream
+                    pass
                 yield json.dumps({
                     "type": "result", "index": i, "done": done,
-                    "total": len(rows), "result": res.model_dump(),
+                    "total": len(rows), "result": payload,
                 }) + "\n"
+        except Exception:
+            status = "error"
+            raise
         finally:
             for t in tasks:
                 t.cancel()
             if db is not None:
                 await db.close()
-        yield json.dumps({"type": "done", "total": len(rows)}) + "\n"
+            with contextlib.suppress(Exception):
+                run_store.finish_run(
+                    run_id, datetime.now(tz).isoformat(timespec="seconds"), status, None)
+        yield json.dumps({"type": "done", "total": len(rows), "run_id": run_id}) + "\n"
 
     return StreamingResponse(stream(), media_type="application/x-ndjson")
