@@ -143,6 +143,17 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-24 — SerpAPI path is now hybrid (Google URLs + competitor own-search)
+
+"Life Stericab UV Chamber": Google missed pinkblue entirely and returned only
+oralkart's pricier "with Intensity Meter" upgrade (₹9325), not the ₹6500 base —
+because Google's index of these niche competitor sites is incomplete. Fix:
+`_match_competitor` now evaluates Google's discovered URLs PLUS the competitor's
+OWN search results (merged, deduped, top 6) through the matcher and keeps the
+best. Recovers the right base variant + pinkblue. Result: oralkart ₹6500 (base) +
+pinkblue ₹8041 + DK ₹8200. The Google path is now ≥ standard (a superset), so the
+⇄ compare view shows where Google's URLs add recall beyond own-search.
+
 ### 2026-06-24 — SerpAPI path: resolve DK via our own search, not Google
 
 "Life Stericab Ultra Violet (UV) Chamber" came back with DK=NONE in the Google

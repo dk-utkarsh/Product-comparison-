@@ -22,7 +22,7 @@ from app.routes.compare import (
     _dk_has_input_product,
     _resolve_dk,
 )
-from app.scrapers.bridge import COMPETITORS, fetch_product
+from app.scrapers.bridge import COMPETITORS, fetch_product, scrape_competitor
 
 router = APIRouter(prefix="/serp", tags=["serp"])
 
@@ -35,17 +35,33 @@ def _no_match(cid: str, cname: str, seen: int) -> CompetitorMatch:
     )
 
 
-# How many of Google's top candidates per source to verify through the matcher.
-_MAX_CANDIDATES = 4
+# How many top candidate PDPs per source to verify through the matcher.
+_MAX_CANDIDATES = 6
 
 
 async def _match_competitor(cid: str, cname: str, urls: list[str],
                             ref: ProductRecord, dk_price: float | None) -> CompetitorMatch:
-    """Verify Google's top candidate PDPs for this source (in page order) through
-    the SAME matcher used by /compare — brand gate → structured match (name/code/
-    sub-variant) — and keep the best one. Earlier-ranked candidates win ties, so a
-    near-duplicate sibling (EXA6) can't beat the correct earlier hit (EXS6)."""
-    if not urls:
+    """Verify candidate PDPs for this source through the SAME matcher used by
+    /compare — brand gate → structured match (name/code/sub-variant) — and keep
+    the best. Candidates = Google's discovered URLs PLUS the competitor's OWN
+    search results: Google's index of these niche sites is incomplete (it missed
+    pinkblue entirely and returned only oralkart's pricier "with Intensity Meter"
+    upgrade, not the ₹6500 base), so merging both lets the matcher pick the right
+    base variant. Earlier candidates win ties."""
+    # Pull the competitor's own search hits (Google URLs lead, own-search fills).
+    own: list[str] = []
+    try:
+        own = [c.url for c in await scrape_competitor(cid, ref.name) if c.url]
+    except Exception:  # own-search is best-effort; Google URLs still stand
+        own = []
+    seen_urls: set[str] = set()
+    cands: list[str] = []
+    for u in list(urls) + own:
+        key = u.split("?", 1)[0]
+        if key not in seen_urls:
+            seen_urls.add(key)
+            cands.append(u)
+    if not cands:
         return _no_match(cid, cname, 0)
 
     async def evaluate(url: str) -> tuple[float, str, object, object] | None:
@@ -62,7 +78,7 @@ async def _match_competitor(cid: str, cname: str, urls: list[str],
         return (score, "confirmed" if sm.verdict is StructuredVerdict.CONFIRMED else "possible",
                 pdp, sm)
 
-    cands = urls[:_MAX_CANDIDATES]
+    cands = cands[:_MAX_CANDIDATES]
     seen = len(cands)
     results = await asyncio.gather(*(evaluate(u) for u in cands))
     scored = [r for r in results if r is not None]
