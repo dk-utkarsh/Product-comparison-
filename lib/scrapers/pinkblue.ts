@@ -246,18 +246,17 @@ export async function fetchPinkblueProduct(url: string): Promise<ProductData | n
     const packSize = detectPackSize(name, `${description} ${packaging}`, url);
     const variants = parsePinkblueVariants($);
 
-    let price = pdp?.price ?? 0;
-    if (!price) {
-      const amt = $(".product-info-price [data-price-amount]").first().attr("data-price-amount");
-      price = parseFloat(amt || "0") || 0;
-    }
-    if (!price) {
-      // Custom "bulk price" layout (no JSON-LD, no data-price-amount) — the
-      // price lives in a data-final-price attribute, e.g.
-      // <span class="main-bulk-price" data-final-price="271">.
-      const fp = $("[data-final-price]").first().attr("data-final-price");
-      price = parseFloat(fp || "0") || 0;
-    }
+    // The rendered Magento price box is what the customer actually pays and is the
+    // source of truth. JSON-LD offer.price can be a stale/aggregate value on
+    // GROUPED or special-priced products — e.g. on the "Ketac Molar ART Kit" page
+    // JSON-LD reported 2680 while the real final price shown everywhere was 1676.
+    // So the on-page final price WINS over JSON-LD; JSON-LD is only the fallback.
+    const renderedPrice =
+      parseFloat($(".product-info-price [data-price-amount]").first().attr("data-price-amount") || "0") ||
+      // Custom "bulk price" layout: <span class="main-bulk-price" data-final-price="271">.
+      parseFloat($("[data-final-price]").first().attr("data-final-price") || "0") ||
+      0;
+    let price = renderedPrice || (pdp?.price ?? 0);
     if (!price && variants.length) {
       // Variant-table pages: fall back to the cheapest sub-variant price.
       price = Math.min(...variants.map((v) => v.price).filter((p) => p > 0));
