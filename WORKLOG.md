@@ -143,6 +143,34 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-24 — UI/UX batch + diff-aware contrast gate + scraper price fix
+
+Grouping several same-day changes that landed as their own commits:
+- **Diff-aware contrast gate** (`gates.py`): generalized intraoral/extraoral into a
+  list of variant AXES (upper/lower, left/right, anterior/posterior, mesial/distal,
+  buccal/lingual, straight/curved/angled, small/medium/large, fine/coarse,
+  single/double, pediatric/adult, restorative/luting, …). Different values on the
+  same axis ⇒ different product. Catches straight/curved (needle holder 073A/073B),
+  left/right (Warwick James), etc.
+- **pinkblue price** (`lib/scrapers/pinkblue.ts`): the rendered Magento price box
+  (data-price-amount / data-final-price) now WINS over JSON-LD offer.price, which
+  is a stale/aggregate value on grouped/special products (Ketac Molar ART Kit:
+  JSON-LD 2680 vs real 1676). Sidecar restarted (tsx, no build).
+- **Scheduled Runs UI**: pagination (10/page, Prev/Next), permanent delete
+  (`DELETE /runs/{id}` + 🗑), live auto-poll after Run now, ↻ Refresh button, and
+  view-persist via `#runs` hash so a reload doesn't drop to the homepage.
+- **Bulk uploads persist as runs**; the compare-page accuracy review links to that
+  run; **accuracy review added to the ⇄ compare view** (reviews the R run).
+- **Render robustness**: a row missing `competitors` no longer aborts
+  renderResults (which had hidden the table + the ✓/✗ + Submit review controls);
+  table renders before insights; clearer "✓ correct / ✗ needs fix" labels.
+- **⇄ compare view**: DK shown for both L/R, products in only one run listed
+  separately (untested ≠ missed), full names (no truncation), product thumbnails
+  (+ exact child image via select_variant).
+- **Pricing insights**: each category tag is clickable → lists the exact products
+  with DK + competitor links.
+- **SerpAPI key** rotated to a fresh 250/month key (api/.env, gitignored).
+
 ### 2026-06-24 — Canonical-core search (the long-name reliability fix) + cement-function contrast
 
 The "middle reliable solution" for huge names: the SerpAPI hybrid own-search was
