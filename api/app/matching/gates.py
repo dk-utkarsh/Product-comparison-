@@ -175,21 +175,48 @@ def _category_exclusion(search_words: set[str], found_words: set[str]) -> bool:
     return False
 
 
-# Opposite product categories — the SAME item line split by where it's used. An
-# "intraoral" elastic/camera is a different product from an "extraoral" one. Fires
-# only when one side is purely A and the other purely B (so a name mentioning both
-# doesn't trip). Non-letters stripped so "intra-oral" == "intraoral".
-_CATEGORY_ANTONYMS = (("intraoral", "extraoral"),)
+# ── Contrast dimensions ────────────────────────────────────────────────────
+# Each set is a VARIANT AXIS: products that take DIFFERENT values on the same
+# axis are different products — even when their names are 90%+ similar and the
+# differing words look alike ("intraoral" vs "extraoral" are 78% identical
+# characters, so similarity scoring reads them as near-matching). This is the
+# "look at the DIFFERENCE, not the similarity" layer: it gives the one decisive
+# word veto power over a pile of shared filler (Penta/Ortho/size/Oz). Each axis
+# below is variant-defining in dental products — taking two different values from
+# the same axis is never the same SKU. (Numeric axes — size 5/8 vs 3/8, 3.5oz vs
+# 8oz, microns, ISO — are handled as model-code discriminators in attributes.)
+_CONTRAST_GROUPS: tuple[frozenset[str], ...] = (
+    frozenset({"intraoral", "extraoral"}),
+    frozenset({"upper", "lower"}),
+    frozenset({"left", "right"}),
+    frozenset({"anterior", "posterior"}),
+    frozenset({"mesial", "distal"}),
+    frozenset({"buccal", "lingual", "palatal"}),
+    frozenset({"maxillary", "mandibular"}),
+    frozenset({"internal", "external"}),
+    frozenset({"male", "female"}),
+    frozenset({"straight", "curved", "angled"}),
+    frozenset({"small", "medium", "large"}),
+    frozenset({"fine", "coarse"}),                 # grit (medium omitted: shared w/ size)
+    frozenset({"short", "long"}),
+    frozenset({"single", "double"}),
+    frozenset({"pediatric", "paediatric", "adult"}),
+    frozenset({"primary", "permanent"}),
+    frozenset({"horizontal", "vertical"}),
+)
 
 
-def _opposite_category(search: str, found: str) -> bool:
-    s = re.sub(r"[^a-z]", "", search.lower())
-    f = re.sub(r"[^a-z]", "", found.lower())
-    for a, b in _CATEGORY_ANTONYMS:
-        sa, sb, fa, fb = a in s, b in s, a in f, b in f
-        if (sa and not sb and fb and not fa) or (sb and not sa and fa and not fb):
-            return True
-    return False
+def _contrast_mismatch(s_words: set[str], f_words: set[str]) -> str | None:
+    """Return a reason when the two names take DIFFERENT values on the same
+    variant axis (e.g. one 'intraoral', the other 'extraoral'). Fires only when
+    each side carries a value from the axis and they share none — so a name that
+    mentions both, or neither, never trips."""
+    for group in _CONTRAST_GROUPS:
+        s_has = group & s_words
+        f_has = group & f_words
+        if s_has and f_has and not (s_has & f_has):
+            return f"{'/'.join(sorted(s_has))} vs {'/'.join(sorted(f_has))}"
+    return None
 
 
 def gate_check(search: str, found: str) -> GateResult:
@@ -208,8 +235,9 @@ def gate_check(search: str, found: str) -> GateResult:
     if _category_exclusion(s_words, f_words):
         return GateResult(False, "category exclusion")
 
-    if _opposite_category(search, found):
-        return GateResult(False, "opposite category (intraoral vs extraoral)")
+    _contrast = _contrast_mismatch(s_words, f_words)
+    if _contrast:
+        return GateResult(False, f"variant mismatch: {_contrast}")
 
     if _no_shared_distinctive(search, found):
         return GateResult(False, "no shared distinctive token")
