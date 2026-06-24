@@ -1081,11 +1081,12 @@ function compareTableHTML(results) {
           <div class="product-name">${enc(searchTerm)}</div>
           <button class="btn-ghost" id="insight-btn-${i}" onclick="toggleInsight(${i})"
             style="margin-top:7px;font-size:12px;padding:3px 10px;">＋ View insight</button>
-          <div style="margin-top:6px;display:flex;gap:6px;align-items:center;">
-            <button class="btn-ghost" id="rv-ok-${i}" title="Reviewed — correct"
-              onclick="markReview(${i}, true)" style="font-size:13px;padding:2px 9px;">✓</button>
-            <button class="btn-ghost" id="rv-no-${i}" title="Needs improvement"
-              onclick="markReview(${i}, false)" style="font-size:13px;padding:2px 9px;">✗</button>
+          <div style="margin-top:7px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <span style="font-size:11px;color:var(--ink-mute);font-weight:600;">Accuracy:</span>
+            <button class="btn-ghost" id="rv-ok-${i}" title="This match is correct"
+              onclick="markReview(${i}, true)" style="font-size:12px;padding:3px 10px;">✓ correct</button>
+            <button class="btn-ghost" id="rv-no-${i}" title="This match needs fixing — add a note"
+              onclick="markReview(${i}, false)" style="font-size:12px;padding:3px 10px;">✗ needs fix</button>
           </div>
           <textarea id="rv-msg-${i}" placeholder="What's wrong / how to improve…"
             style="display:none;width:100%;margin-top:6px;font-size:12px;min-height:48px;"></textarea>
@@ -1348,6 +1349,10 @@ function renderResults(data, elapsed) {
   $("results-section").style.display = "block";
   requestAnimationFrame(() => $("results-section").classList.add("in"));
 
+  // Defensive: a malformed/errored row may lack `competitors` — never let that
+  // throw and abort the whole render (which would hide the table + review bar).
+  for (const r of data.results || []) { if (!Array.isArray(r.competitors)) r.competitors = []; }
+
   const compHits = data.results.reduce((n, r) =>
     n + r.competitors.filter(isShownMatch).length, 0);
   const cheaper = data.results.reduce((n, r) =>
@@ -1362,8 +1367,11 @@ function renderResults(data, elapsed) {
     <span class="pill emerald">${pricier} cheaper elsewhere</span>
   `;
 
-  renderPricingInsights(data.results, "pricing-insights");
+  // Render the table FIRST so a later insights error can never hide the results
+  // + the accuracy-review controls.
   $("results").innerHTML = compareTableHTML(data.results);
+  try { renderPricingInsights(data.results, "pricing-insights"); }
+  catch (e) { logLine("pricing insights failed: " + e.message); }
 }
 
 /* ── Feedback ──────────────────────────── */
