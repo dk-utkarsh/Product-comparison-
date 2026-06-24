@@ -1540,13 +1540,16 @@ window.rerunRun = rerunRun;
 function _runMatch(result, cid) {
   const c = (result && result.competitors || []).find((x) => x.competitor_id === cid);
   if (!c || !c.matched_name || (c.score ?? 0) < MIN_CONFIDENCE || c.matched_price == null) return null;
-  return { name: c.matched_name, price: c.matched_price, score: c.score, url: c.matched_url };
+  return { name: c.matched_name, price: c.matched_price, score: c.score, url: c.matched_url, image: c.matched_image };
 }
 function _cmpCell(a, b) {
   // a = source (left), b = re-run (right). Tint green when one side found a match
   // the other missed; amber when both found but prices differ.
+  const thumb = (m) => m && m.image
+    ? `<img src="${enc(m.image)}" style="width:36px;height:36px;object-fit:contain;border:1px solid var(--rule,#ddd);border-radius:4px;background:#fff;flex:0 0 auto;" loading="lazy" alt="" />`
+    : (m ? `<span style="width:36px;height:36px;border:1px solid var(--rule,#eee);border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:8px;color:var(--ink-mute);flex:0 0 auto;">no img</span>` : "");
   const line = (m, who) => m
-    ? `<div style="font-size:12px;line-height:1.35;word-break:break-word;overflow-wrap:anywhere;"><span style="color:var(--ink-mute);">${who}</span> ${enc(m.name)}<br><span class="mono">${fmtMoney(m.price)}</span> <span style="color:var(--ink-mute);">${m.score != null ? "· " + m.score.toFixed(2) : ""}</span>${m.url ? ` <a class="cell-link" href="${enc(m.url)}" target="_blank" rel="noopener">↗</a>` : ""}</div>`
+    ? `<div style="font-size:12px;line-height:1.35;word-break:break-word;overflow-wrap:anywhere;display:flex;gap:6px;align-items:flex-start;">${thumb(m)}<div><span style="color:var(--ink-mute);">${who}</span> ${enc(m.name)}<br><span class="mono">${fmtMoney(m.price)}</span> <span style="color:var(--ink-mute);">${m.score != null ? "· " + m.score.toFixed(2) : ""}</span>${m.url ? ` <a class="cell-link" href="${enc(m.url)}" target="_blank" rel="noopener">↗</a>` : ""}</div></div>`
     : `<div style="font-size:12px;color:var(--ink-mute);">${who} — no match</div>`;
   let bg = "";
   if (!a && b) bg = "background:rgba(16,160,90,.12);";       // re-run found, source missed
@@ -1589,7 +1592,7 @@ async function compareRuns(rerunId) {
       }
       // DK can resolve differently between Standard and Google, so show BOTH
       // sides (L/R) like the competitor columns — not just the source run.
-      const dkOf = (r) => { const m = r && r.dentalkart_match; return m ? { name: m.matched_name, price: m.matched_price, score: null, url: m.matched_url } : null; };
+      const dkOf = (r) => { const m = r && r.dentalkart_match; return m ? { name: m.matched_name, price: m.matched_price, score: null, url: m.matched_url, image: m.matched_image } : null; };
       const dkCell = _cmpCell(dkOf(ra), dkOf(rb));
       return `<tr><td class="col-num">${i + 1}</td><td><div class="product-name" style="font-size:12px;max-width:none;word-break:break-word;overflow-wrap:anywhere;">${enc(nm)}</div></td>${dkCell}${cells}</tr>`;
     }).join("");

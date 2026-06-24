@@ -159,6 +159,10 @@ def select_variant(
     cp.unit_price = float(chosen.get("unitPrice") or cp.unit_price)
     if chosen.get("variantSpec"):
         cp.variant_spec = chosen["variantSpec"]
+    # Use the EXACT child image when the variant carries its own (DK variants do;
+    # competitors usually share the parent image, which then stays).
+    if chosen.get("image"):
+        cp.image = str(chosen["image"])
     # Show the resolved sub-variant name (default) when the input named it —
     # e.g. "…016 X 022 Short Upper". A base input keeps the base name.
     if chosen.get("name") and pins_by_name:
