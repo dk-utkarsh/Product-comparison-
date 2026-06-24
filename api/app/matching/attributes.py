@@ -79,6 +79,15 @@ _DIM_INT_RE = re.compile(r"\b(\d{2,3})\s*[x×*]\s*(\d{2,3})\b", re.IGNORECASE)  
 # "40µ Microns", "100µ" — a hard variant discriminator (40µ ≠ 70µ). The bare
 # "u" unit is excluded (too ambiguous). Normalized to "<n>u".
 _MICRON_RE = re.compile(r"\b(\d{2,3})\s*(?:µ|μ|microns?)", re.IGNORECASE)  # noqa: RUF001
+# Force / volume in ounces — ortho elastics "3.5 Oz", "8 Oz", "2 oz" (the elastic
+# force), or fluid volume. A hard size discriminator (3.5oz ≠ 8oz). Normalized
+# "<n>oz".
+_OZ_RE = re.compile(r"\b(\d{1,2}(?:\.\d)?)\s*oz\b", re.IGNORECASE)
+# Fraction-inch size — ortho elastic diameter / instrument fractions: 1/8, 3/8,
+# 5/16, 1/2, 5/8 (5/8 ≠ 3/8). Denominator restricted to real inch fractions
+# (2/4/8/16/32) so ratios ("1:1"), suture "/0" and dates don't match. Normalized
+# "<n>/<d>".
+_FRAC_RE = re.compile(r"\b([1-9]\d?)/(2|4|8|16|32)\b")
 _ISO_RE = re.compile(r"(?:#|no\.|size|iso)\s*(\d{2,3})\b", re.IGNORECASE)
 _SHADE_RE = re.compile(r"\b([A-D][1-4](?:\.5)?|BW|UD)\b")
 _CONC_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
@@ -148,6 +157,8 @@ def extract_attributes(name: str) -> Attributes:
     model_codes += [f"{m.group(1)}-0" for m in _SUTURE_RE.finditer(name)]
     model_codes += [f"{m.group(1)}x{m.group(2)}" for m in _DIM_INT_RE.finditer(name)]
     model_codes += [f"{m.group(1)}u" for m in _MICRON_RE.finditer(name)]
+    model_codes += [f"{m.group(1)}oz" for m in _OZ_RE.finditer(name)]
+    model_codes += [f"{m.group(1)}/{m.group(2)}" for m in _FRAC_RE.finditer(name)]
 
     viscosity: str | None = None
     for v in _VISCOSITY_VARIANTS:

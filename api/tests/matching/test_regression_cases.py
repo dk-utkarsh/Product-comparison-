@@ -67,6 +67,15 @@ GATE_CASES = [
      "Kalabhai Ultra Rock Die (Brown) Stone (3kg)", True, "Brown == Brown"),
     ("Kalabhai Ultra Rock Die (Brown) Stone (3kg)",
      "Kalabhai Ultrarock Die Stone 3 Kg", True, "colour one-sided → no gate"),
+    # Ortho elastics: intraoral≠extraoral, and the fraction-inch size (5/8 vs 3/8)
+    # + the ounce force (3.5oz vs 8oz) are hard size discriminators. Each alone
+    # must split these — they're otherwise ~94% name-similar.
+    ("Penta Ortho Intraoral Elastics - size 5/8 -3.5 Oz",
+     "Penta Ortho Extraoral Elastics - size 3/8-8 Oz", False, "intraoral≠extraoral"),
+    ("Penta Ortho Intraoral Elastics - size 5/8 -3.5 Oz",
+     "Penta Ortho Intraoral Elastics - size 3/8 -8 Oz", False, "5/8 3.5oz ≠ 3/8 8oz"),
+    ("Penta Ortho Intraoral Elastics - size 5/8 -3.5 Oz",
+     "Penta Ortho Intraoral Elastics - size 5/8 -3.5 Oz", True, "identical → match"),
 ]
 
 

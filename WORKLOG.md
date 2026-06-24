@@ -143,6 +143,19 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-24 — Ortho-elastic discriminators: intraoral/extraoral + Oz force + fraction-inch
+
+"Penta Ortho Intraoral Elastics 5/8 -3.5 Oz" matched "…Extraoral… 3/8-8 Oz" at
+0.93 — three distinguishing features, NONE captured: gate passed, names ~94%
+cosine. Added three independent discriminators (33/33 regression):
+- `_opposite_category` gate: intraoral ≠ extraoral (XOR — a name mentioning both
+  doesn't trip; non-letters stripped so intra-oral == intraoral).
+- `_OZ_RE`: ounce force/volume "3.5 Oz"/"8 Oz" → model_code "<n>oz" (3.5oz ≠ 8oz).
+- `_FRAC_RE`: fraction-inch size "5/8"/"3/8" (denom 2/4/8/16/32 only, so ratios
+  "1:1", suture "/0", dates don't match) → model_code "<n>/<d>".
+Each alone splits the pair; the two-sided model-code gate + category gate make it
+robust. Safety: same-oz / same-fraction / 1:1-ratio still pass.
+
 ### 2026-06-24 — SerpAPI path is now hybrid (Google URLs + competitor own-search)
 
 "Life Stericab UV Chamber": Google missed pinkblue entirely and returned only

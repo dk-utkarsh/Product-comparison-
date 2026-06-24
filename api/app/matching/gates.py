@@ -175,6 +175,23 @@ def _category_exclusion(search_words: set[str], found_words: set[str]) -> bool:
     return False
 
 
+# Opposite product categories — the SAME item line split by where it's used. An
+# "intraoral" elastic/camera is a different product from an "extraoral" one. Fires
+# only when one side is purely A and the other purely B (so a name mentioning both
+# doesn't trip). Non-letters stripped so "intra-oral" == "intraoral".
+_CATEGORY_ANTONYMS = (("intraoral", "extraoral"),)
+
+
+def _opposite_category(search: str, found: str) -> bool:
+    s = re.sub(r"[^a-z]", "", search.lower())
+    f = re.sub(r"[^a-z]", "", found.lower())
+    for a, b in _CATEGORY_ANTONYMS:
+        sa, sb, fa, fb = a in s, b in s, a in f, b in f
+        if (sa and not sb and fb and not fa) or (sb and not sa and fa and not fb):
+            return True
+    return False
+
+
 def gate_check(search: str, found: str) -> GateResult:
     s_attrs = extract_attributes(search)
     f_attrs = extract_attributes(found)
@@ -190,6 +207,9 @@ def gate_check(search: str, found: str) -> GateResult:
 
     if _category_exclusion(s_words, f_words):
         return GateResult(False, "category exclusion")
+
+    if _opposite_category(search, found):
+        return GateResult(False, "opposite category (intraoral vs extraoral)")
 
     if _no_shared_distinctive(search, found):
         return GateResult(False, "no shared distinctive token")
