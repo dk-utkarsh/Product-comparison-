@@ -1452,9 +1452,11 @@ async function loadRuns() {
           <td>${badge}</td>
           <td class="mono">${run.done_count}/${run.sku_count}</td>
           <td>${acc}</td>
-          <td>
+          <td style="white-space:nowrap;">
             <a href="#" class="cell-link" onclick="openRun(${run.id});return false;">view →</a>
-            &nbsp;·&nbsp;<a href="#" class="cell-link" onclick="rerunRun(${run.id});return false;" title="Re-run the same products">↻ re-run</a>
+            &nbsp;·&nbsp;<a href="#" class="cell-link" onclick="rerunRun(${run.id}, false);return false;" title="Re-run the same products (standard search)">↻ re-run</a>
+            &nbsp;·&nbsp;<a href="#" class="cell-link" onclick="rerunRun(${run.id}, true);return false;" title="Re-run the same products via Google (SerpAPI) — capped 15 products">🔍 Google</a>
+            ${run.source_run_id ? `&nbsp;·&nbsp;<a href="#" class="cell-link" style="font-weight:600;" onclick="compareRuns(${run.id});return false;" title="Compare this re-run against its source run #${run.source_run_id}">⇄ compare</a>` : ""}
           </td>
         </tr>`;
     }).join("");
@@ -1501,18 +1503,90 @@ async function openRun(id) {
 }
 window.openRun = openRun;
 
-async function rerunRun(id) {
-  if (!confirm(`Re-run the exact same products as run #${id}? (computes fresh prices to compare)`)) return;
+async function rerunRun(id, serp) {
+  const via = serp ? "Google (SerpAPI)" : "standard search";
+  const note = serp ? "\n\nGoogle mode is capped to 15 products and spends ~2 of your ~100 monthly searches each." : "";
+  if (!confirm(`Re-run the same products as run #${id} via ${via}?${note}`)) return;
   try {
-    const r = await fetch(`/runs/${id}/rerun`, { method: "POST" });
+    const r = await fetch(`/runs/${id}/rerun${serp ? "?serp=1" : ""}`, { method: "POST" });
     const d = await r.json();
-    alert(`Re-run started for ${d.products} products (copy of #${id}). It'll appear at the top of the list shortly.`);
+    alert(`Re-run started (${via}) for ${d.products} products. It'll appear at the top — then use “⇄ compare” on it to diff against #${id}.`);
     setTimeout(loadRuns, 2000);
   } catch (e) {
     alert("Failed to start re-run: " + e.message);
   }
 }
 window.rerunRun = rerunRun;
+
+/* ── Compare a re-run against its source run (Standard vs Google) ── */
+function _runMatch(result, cid) {
+  const c = (result && result.competitors || []).find((x) => x.competitor_id === cid);
+  if (!c || !c.matched_name || (c.score ?? 0) < MIN_CONFIDENCE || c.matched_price == null) return null;
+  return { name: c.matched_name, price: c.matched_price, score: c.score, url: c.matched_url };
+}
+function _cmpCell(a, b) {
+  // a = source (left), b = re-run (right). Tint green when one side found a match
+  // the other missed; amber when both found but prices differ.
+  const line = (m, who) => m
+    ? `<div style="font-size:12px;line-height:1.35;"><span style="color:var(--ink-mute);">${who}</span> ${enc(m.name.slice(0, 38))}<br><span class="mono">${fmtMoney(m.price)}</span> <span style="color:var(--ink-mute);">${m.score != null ? "· " + m.score.toFixed(2) : ""}</span>${m.url ? ` <a class="cell-link" href="${enc(m.url)}" target="_blank" rel="noopener">↗</a>` : ""}</div>`
+    : `<div style="font-size:12px;color:var(--ink-mute);">${who} — no match</div>`;
+  let bg = "";
+  if (!a && b) bg = "background:rgba(16,160,90,.12);";       // re-run found, source missed
+  else if (a && !b) bg = "background:rgba(190,120,40,.12);"; // source found, re-run missed
+  else if (a && b && Math.abs((a.price || 0) - (b.price || 0)) > 0.5) bg = "background:rgba(190,120,40,.08);";
+  return `<td style="${bg}vertical-align:top;">${line(a, "L:")}${line(b, "R:")}</td>`;
+}
+async function compareRuns(rerunId) {
+  const card = $("run-detail-card");
+  card.style.display = "block";
+  $("run-detail-title").textContent = `Comparing run #${rerunId}…`;
+  $("run-detail-summary").innerHTML = "";
+  $("run-detail-insights").innerHTML = "";
+  $("run-detail").innerHTML = `<div class="status-msg">Loading both runs…</div>`;
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+  CURRENT_RUN_ID = null;  // comparison view is not reviewable
+  try {
+    const rer = await (await fetch(`/runs/${rerunId}`)).json();
+    if (!rer.source_run_id) { $("run-detail").innerHTML = `<div class="status-msg">This run isn't a re-run, so there's nothing to compare.</div>`; return; }
+    const src = await (await fetch(`/runs/${rer.source_run_id}`)).json();
+    const labL = (src.trigger || "").includes("google") ? "🔍 Google" : "Standard";
+    const labR = (rer.trigger || "").includes("google") ? "🔍 Google" : "Standard";
+    const map = (run) => { const m = {}; (run.items || []).forEach((it) => { if (it.result) m[it.name] = it.result; }); return m; };
+    const A = map(src), B = map(rer);
+    const names = [...new Set([...Object.keys(A), ...Object.keys(B)])];
+    let lWins = 0, rWins = 0, lHits = 0, rHits = 0;
+    const rows = names.map((nm, i) => {
+      const ra = A[nm], rb = B[nm];
+      let cells = "";
+      for (const [cid] of COMPETITORS) {
+        const a = _runMatch(ra, cid), b = _runMatch(rb, cid);
+        if (a) lHits++; if (b) rHits++;
+        if (a && !b) lWins++; if (!a && b) rWins++;
+        cells += _cmpCell(a, b);
+      }
+      const dkA = ra && ra.dentalkart_match, dkB = rb && rb.dentalkart_match;
+      const dkCell = `<td style="vertical-align:top;font-size:12px;">${dkA ? enc((dkA.matched_name || "").slice(0, 30)) + "<br><span class='mono'>" + fmtMoney(dkA.matched_price) + "</span>" : "<span style='color:var(--ink-mute)'>—</span>"}</td>`;
+      return `<tr><td class="col-num">${i + 1}</td><td><div class="product-name" style="font-size:12px;">${enc(nm.slice(0, 46))}</div></td>${dkCell}${cells}</tr>`;
+    }).join("");
+    $("run-detail-title").textContent = `Compare · ${labL} #${src.id}  vs  ${labR} #${rer.id}`;
+    $("run-detail-summary").innerHTML = `
+      <span class="pill">${names.length} products</span>
+      <span class="pill" title="Competitor matches found">L ${lHits} · R ${rHits} matches</span>
+      ${rWins ? `<span class="pill emerald" title="Matches R found that L missed">R found +${rWins}</span>` : ""}
+      ${lWins ? `<span class="pill rust" title="Matches L found that R missed">L found +${lWins}</span>` : ""}`;
+    const head = `<th>#</th><th>Product</th><th>DK (L)</th>${COMPETITORS.map(([, n]) => `<th>${n}</th>`).join("")}`;
+    $("run-detail").innerHTML = `
+      <div style="font-size:12px;color:var(--ink-mute);margin-bottom:8px;">
+        <strong>L</strong> = ${labL} (run #${src.id}) · <strong>R</strong> = ${labR} (run #${rer.id}).
+        <span style="background:rgba(16,160,90,.12);padding:1px 5px;border-radius:4px;">green</span> = R found, L missed ·
+        <span style="background:rgba(190,120,40,.12);padding:1px 5px;border-radius:4px;">amber</span> = L found / price differs.
+      </div>
+      <div style="overflow-x:auto;"><table class="compare-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  } catch (e) {
+    $("run-detail").innerHTML = `<div class="status-msg">Failed to load comparison: ${enc(e.message)}</div>`;
+  }
+}
+window.compareRuns = compareRuns;
 
 $("nav-runs").addEventListener("click", (e) => { e.preventDefault(); showRuns(); });
 $("nav-compare").addEventListener("click", (e) => { e.preventDefault(); showCompare(); });

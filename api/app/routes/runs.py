@@ -35,8 +35,10 @@ def watchlist() -> dict:
 
 
 @router.post("/{run_id}/rerun")
-async def rerun(run_id: int) -> dict:
-    """Re-run the EXACT same products as a past run (to recompute & compare)."""
+async def rerun(run_id: int, serp: bool = False) -> dict:
+    """Re-run the EXACT same products as a past run (to recompute & compare).
+    `serp` replays them through the Google/SerpAPI path so the result can be
+    diffed against the original standard run — quota-capped to 15 products."""
     run = run_store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
@@ -47,8 +49,14 @@ async def rerun(run_id: int) -> dict:
     ]
     if not products:
         raise HTTPException(status_code=400, detail="run has no products to replay")
-    asyncio.create_task(execute_run("rerun", products=products, source_run_id=run_id))
-    return {"status": "started", "products": len(products), "source_run_id": run_id}
+    if serp:
+        products = products[:15]   # protect the ~100 searches/month quota
+    asyncio.create_task(execute_run(
+        "rerun-google" if serp else "rerun",
+        products=products, source_run_id=run_id, use_serp=serp,
+    ))
+    return {"status": "started", "products": len(products), "source_run_id": run_id,
+            "via": "google" if serp else "standard"}
 
 
 @router.get("/{run_id}")

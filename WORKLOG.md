@@ -143,6 +143,21 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-24 — Google re-run + Standard-vs-Google comparison view
+
+- **Re-run via Google**: each run row now has "🔍 Google" (re-run the exact same
+  products through SerpAPI) alongside "↻ re-run" (standard). `POST
+  /runs/{id}/rerun?serp=1` → `execute_run("rerun-google", products, source_run_id,
+  use_serp=True)`, capped to 15 products for quota. The re-run stores with
+  `source_run_id` = the original.
+- **⇄ compare** link on any re-run (has a source_run_id): `compareRuns()` fetches
+  the re-run + its source, matches products by name, and renders a side-by-side
+  diff table — L = source, R = re-run — with per-competitor cells tinted green
+  (R found, L missed) / amber (L found or price differs), plus a header tally
+  ("R found +N", "L found +N"). Lets you A/B Standard vs Google on the SAME
+  products in the UI. Verified: std #8 vs Google #16 surfaced where each path
+  won/lost competitors (3M ESPE: std found oralkart, Google didn't).
+
 ### 2026-06-24 — Google toggle on Scheduled Runs + per-run accuracy
 
 - **Google (SerpAPI) toggle on the Scheduled-Runs page** (next to count + Run
