@@ -143,6 +143,20 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-24 — Canonical-core search (the long-name reliability fix) + cement-function contrast
+
+The "middle reliable solution" for huge names: the SerpAPI hybrid own-search was
+querying competitors with the FULL verbose name ("3M ESPE Ketac Molar … (15g
+Powder + 7.8mL Liquid + Mixing Pad + Scoop)") → 0 hits. Switched it to the
+CANONICAL-CORE smart queries (brand+line+key tokens) and rank hits by name
+similarity → 0→22 (pinkblue) / 19 (oralkart) results, the right products found.
+(`routes/serp.py` `_match_competitor`.) Standard /compare already used smart
+queries; this brings the Google path to parity.
+This surfaced a precision bug: oralkart matched "Ketac CEM … Luting Cement" (a
+luting cement) for a "Ketac Molar … Restorative" (filling) — caught with a new
+contrast axis {restorative, luting}. Result: pinkblue Ketac Molar ART ₹1676 +
+oralkart Ketac Molar GI Filling ₹1750, both correct. 35/35 regression.
+
 ### 2026-06-24 — Ortho-elastic discriminators: intraoral/extraoral + Oz force + fraction-inch
 
 "Penta Ortho Intraoral Elastics 5/8 -3.5 Oz" matched "…Extraoral… 3/8-8 Oz" at

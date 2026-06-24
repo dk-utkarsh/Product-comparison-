@@ -203,6 +203,10 @@ _CONTRAST_GROUPS: tuple[frozenset[str], ...] = (
     frozenset({"pediatric", "paediatric", "adult"}),
     frozenset({"primary", "permanent"}),
     frozenset({"horizontal", "vertical"}),
+    # Dental-cement FUNCTION — a restorative/filling cement (e.g. Ketac Molar) is
+    # a different product from a luting cement that cements crowns (Ketac Cem),
+    # even though both are "glass ionomer cement". (synonyms not mixed in.)
+    frozenset({"restorative", "luting"}),
 )
 
 

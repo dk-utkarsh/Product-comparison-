@@ -76,6 +76,12 @@ GATE_CASES = [
      "Penta Ortho Intraoral Elastics - size 3/8 -8 Oz", False, "5/8 3.5oz ≠ 3/8 8oz"),
     ("Penta Ortho Intraoral Elastics - size 5/8 -3.5 Oz",
      "Penta Ortho Intraoral Elastics - size 5/8 -3.5 Oz", True, "identical → match"),
+    # Cement function: a restorative (Ketac Molar) ≠ a luting cement (Ketac Cem),
+    # even though both are "glass ionomer cement".
+    ("3M ESPE Ketac Molar Glass Ionomer Restorative Cement",
+     "3M ESPE Ketac Cem Glass Ionomer Luting Cement", False, "restorative≠luting"),
+    ("3M ESPE Ketac Molar Glass Ionomer Restorative Cement",
+     "3M ESPE Ketac Molar GI Filling Cement", True, "restorative vs filling (same fn)"),
 ]
 
 

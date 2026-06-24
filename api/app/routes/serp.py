@@ -13,7 +13,10 @@ import asyncio
 from fastapi import APIRouter
 
 from app import pipeline, serp
+from app.matching.normalize import normalize_for_match
+from app.matching.query_builder import ProductContext, extract_smart_queries
 from app.matching.structured import ProductRecord, StructuredVerdict, structured_match
+from app.matching.tokens import fuzz_ratio
 from app.matching.triage import triage_batch
 from app.routes.compare import (
     CompareResult,
@@ -48,15 +51,33 @@ async def _match_competitor(cid: str, cname: str, urls: list[str],
     pinkblue entirely and returned only oralkart's pricier "with Intensity Meter"
     upgrade, not the ₹6500 base), so merging both lets the matcher pick the right
     base variant. Earlier candidates win ties."""
-    # Pull the competitor's own search hits (Google URLs lead, own-search fills).
-    own: list[str] = []
+    # Pull the competitor's own search hits with CANONICAL-CORE queries (brand +
+    # line + key tokens), NOT the full verbose name. A long name like "3M ESPE
+    # Ketac Molar … (15g Powder + 7.8mL Liquid + Mixing Pad + Scoop)" returns 0
+    # hits on the competitor's search engine; the short core queries return the
+    # right product. Rank the hits by name similarity to the input so the best
+    # few survive the _MAX_CANDIDATES cap. (Google URLs lead — they're targeted.)
+    own_ranked: list[str] = []
     try:
-        own = [c.url for c in await scrape_competitor(cid, ref.name) if c.url]
+        ctx = ProductContext(description=ref.description or None,
+                             packaging=ref.packaging or None, sku=ref.sku)
+        queries = extract_smart_queries(ref.name, ctx) or [ref.name]
+        pool: dict[str, object] = {}
+        for q in queries[:3]:
+            for c in await scrape_competitor(cid, q):
+                key = (c.url or "").split("?", 1)[0]
+                if key and c.name and key not in pool:
+                    pool[key] = c
+        ref_norm = normalize_for_match(ref.name)
+        ranked = sorted(pool.values(),
+                        key=lambda c: fuzz_ratio(ref_norm, normalize_for_match(c.name)),
+                        reverse=True)
+        own_ranked = [c.url for c in ranked]
     except Exception:  # own-search is best-effort; Google URLs still stand
-        own = []
+        own_ranked = []
     seen_urls: set[str] = set()
     cands: list[str] = []
-    for u in list(urls) + own:
+    for u in list(urls) + own_ranked:
         key = u.split("?", 1)[0]
         if key not in seen_urls:
             seen_urls.add(key)
