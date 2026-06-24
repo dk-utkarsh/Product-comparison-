@@ -363,7 +363,8 @@
     table.compare-table tr:last-child td { border-bottom: 0; }
     .col-num { width: 36px; color: var(--ink-mute); font-size: 11px; font-family: 'JetBrains Mono', monospace; }
     .product-name {
-      font-weight: 500; line-height: 1.4; max-width: 30ch;
+      font-weight: 500; line-height: 1.4; max-width: 44ch;
+      overflow-wrap: anywhere; word-break: break-word;
     }
 
     .cell-flex { display: flex; gap: 12px; }
@@ -382,8 +383,8 @@
       font-size: 15px; font-weight: 500; color: var(--ink);
     }
     .cell-name {
-      font-size: 11px; color: var(--ink-mute); line-height: 1.4;
-      margin-top: 3px; max-width: 240px;
+      font-size: 12px; color: var(--ink); line-height: 1.4;
+      margin-top: 3px; max-width: 340px;
       overflow-wrap: anywhere; word-break: break-word;
     }
     .cell-meta {
@@ -1528,7 +1529,7 @@ function _cmpCell(a, b) {
   // a = source (left), b = re-run (right). Tint green when one side found a match
   // the other missed; amber when both found but prices differ.
   const line = (m, who) => m
-    ? `<div style="font-size:12px;line-height:1.35;"><span style="color:var(--ink-mute);">${who}</span> ${enc(m.name.slice(0, 38))}<br><span class="mono">${fmtMoney(m.price)}</span> <span style="color:var(--ink-mute);">${m.score != null ? "· " + m.score.toFixed(2) : ""}</span>${m.url ? ` <a class="cell-link" href="${enc(m.url)}" target="_blank" rel="noopener">↗</a>` : ""}</div>`
+    ? `<div style="font-size:12px;line-height:1.35;word-break:break-word;overflow-wrap:anywhere;"><span style="color:var(--ink-mute);">${who}</span> ${enc(m.name)}<br><span class="mono">${fmtMoney(m.price)}</span> <span style="color:var(--ink-mute);">${m.score != null ? "· " + m.score.toFixed(2) : ""}</span>${m.url ? ` <a class="cell-link" href="${enc(m.url)}" target="_blank" rel="noopener">↗</a>` : ""}</div>`
     : `<div style="font-size:12px;color:var(--ink-mute);">${who} — no match</div>`;
   let bg = "";
   if (!a && b) bg = "background:rgba(16,160,90,.12);";       // re-run found, source missed
@@ -1565,8 +1566,8 @@ async function compareRuns(rerunId) {
         cells += _cmpCell(a, b);
       }
       const dkA = ra && ra.dentalkart_match, dkB = rb && rb.dentalkart_match;
-      const dkCell = `<td style="vertical-align:top;font-size:12px;">${dkA ? enc((dkA.matched_name || "").slice(0, 30)) + "<br><span class='mono'>" + fmtMoney(dkA.matched_price) + "</span>" : "<span style='color:var(--ink-mute)'>—</span>"}</td>`;
-      return `<tr><td class="col-num">${i + 1}</td><td><div class="product-name" style="font-size:12px;">${enc(nm.slice(0, 46))}</div></td>${dkCell}${cells}</tr>`;
+      const dkCell = `<td style="vertical-align:top;font-size:12px;word-break:break-word;overflow-wrap:anywhere;">${dkA ? enc(dkA.matched_name || "") + "<br><span class='mono'>" + fmtMoney(dkA.matched_price) + "</span>" : "<span style='color:var(--ink-mute)'>—</span>"}</td>`;
+      return `<tr><td class="col-num">${i + 1}</td><td><div class="product-name" style="font-size:12px;max-width:none;word-break:break-word;overflow-wrap:anywhere;">${enc(nm)}</div></td>${dkCell}${cells}</tr>`;
     }).join("");
     $("run-detail-title").textContent = `Compare · ${labL} #${src.id}  vs  ${labR} #${rer.id}`;
     $("run-detail-summary").innerHTML = `
