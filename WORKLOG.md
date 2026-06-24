@@ -143,6 +143,25 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-24 — "Look deeper on a near-name": container ≠ kit + hard price ceiling
+
+Case: "Julldent Zygo Box" (storage box, ₹2399) matched Oralkart "Julldent Zygo
+kit" (the full surgical kit that *contains* a box, ₹25,995) — score 0.89. The
+names share 2/3 tokens (0.91 weighted), so the near-exact-name override bypassed
+the 5x price band (10.8x gap), and a borderline verdict still showed it.
+
+Fix (`structured.py` + `settings.py`): before trusting a strong NAME match, probe
+the discriminators a surface match hides —
+- **Product KIND**: a CONTAINER word (box/case/stand/holder/…) vs a BUNDLE word
+  (kit/set/system/combo/…). One side purely container + other purely bundle +
+  price out of band → REJECT (`_kind_mismatch`).
+- **Hard price ceiling** (`price_band_hard_ratio=8.0`): a per-unit gap beyond 8x
+  can't be a pack/form difference (pack is normalized out); with no corroborating
+  spec/attribute it's a different product → REJECT.
+Both are uncorroborated-only: an agreeing model-code/size/spec still matches. The
+Meril reel-vs-pack near-name override (1.5x, same kind) stays CONFIRMED; Box-vs-
+Box, Kit-vs-Set, Kit-vs-plain are untouched. 27/27 regression (added the case).
+
 ### 2026-06-24 — Google re-run + Standard-vs-Google comparison view
 
 - **Re-run via Google**: each run row now has "🔍 Google" (re-run the exact same

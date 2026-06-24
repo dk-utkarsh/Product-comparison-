@@ -75,6 +75,29 @@ _VARIANT_FIELDS: tuple[str, ...] = (
 
 _STRONG_CODE_RE = re.compile(r"[a-z]{1,4}-?\d{3,}[a-z]{0,2}")
 
+# Product-KIND words. A storage CONTAINER (box/case/stand…) is a different
+# product from the multi-item BUNDLE that holds it (kit/set/system…). When two
+# otherwise near-identical names disagree on kind, that "slight" name difference
+# is actually decisive — so we look past the high token/fuzz score.
+_CONTAINER_WORDS = frozenset({
+    "box", "boxes", "case", "casing", "pouch", "stand", "holder", "organizer",
+    "organiser", "caddy", "rack", "cassette", "container",
+})
+_BUNDLE_WORDS = frozenset({
+    "kit", "kits", "set", "sets", "system", "combo", "package", "assortment", "bundle",
+})
+
+
+def _kind_mismatch(a_norm: str, b_norm: str) -> bool:
+    """True when one name is purely a CONTAINER and the other purely a BUNDLE —
+    e.g. 'Julldent Zygo Box' (a storage box) vs 'Julldent Zygo kit' (the full
+    surgical kit that includes a box). Both having a container word, or both a
+    bundle word, is NOT a mismatch."""
+    a, b = set(a_norm.split()), set(b_norm.split())
+    a_c, a_b = bool(a & _CONTAINER_WORDS), bool(a & _BUNDLE_WORDS)
+    b_c, b_b = bool(b & _CONTAINER_WORDS), bool(b & _BUNDLE_WORDS)
+    return (a_c and not a_b and b_b and not b_c) or (b_c and not b_b and a_b and not a_c)
+
 
 def _main_model_codes(name: str) -> set[str]:
     """Strong manufacturer model codes in the MAIN name (parenthetical DK SKUs
@@ -220,6 +243,25 @@ def structured_match(search: ProductRecord, candidate: ProductRecord) -> Structu
         reasons.append(f"different size: {pack_note}")
     elif spec_match in (SpecMatch.EXACT.value, SpecMatch.SAME_TIER.value):
         reasons.append(f"spec {spec_match}")
+
+    # ── Look deeper than the NAME when it differs only slightly ──────────────
+    # A high token/fuzz score is not enough on its own: two near-identical names
+    # can be different products. Probe the discriminators that a surface name
+    # match hides — the product KIND (container vs bundle) and the per-unit price
+    # (a gap too large to be a pack/form difference). Either, uncorroborated by an
+    # agreeing spec/attribute, means it's a different product, not a match.
+    hard = settings.price_band_hard_ratio
+    extreme_price = unit_ratio is not None and not (1.0 / hard <= unit_ratio <= hard)
+    kind_clash = _kind_mismatch(s_norm, c_norm)
+    corroborated = compared >= 1 or spec_match in (
+        SpecMatch.EXACT.value, SpecMatch.SAME_TIER.value)
+    if (kind_clash and not in_band) or (extreme_price and not corroborated):
+        why = ("container vs kit/bundle" if kind_clash
+               else f"per-unit price {unit_ratio:.1f}x apart")
+        reasons.append(f"different product: {why}")
+        return StructuredResult(
+            StructuredVerdict.REJECTED, features, reasons, pack_note, spec_match=spec_match
+        )
 
     strong_line = cosine >= settings.confirm_cosine or fzr >= settings.confirm_fuzz
     brand_ok = features.brand_match is not False

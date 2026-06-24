@@ -102,6 +102,23 @@ def test_near_exact_name_overrides_price_band():
     assert wrong.verdict is not StructuredVerdict.CONFIRMED
 
 
+def test_container_is_not_the_kit_that_holds_it():
+    """A storage BOX is not the multi-item KIT that contains it, even when the
+    names are near-identical ('Zygo Box' vs 'Zygo kit'). The product kind
+    (container vs bundle) plus a 10x per-unit price gap give it away — a high
+    token/fuzz score must not override that."""
+    box = ProductRecord(name="Julldent Zygo Box", price=2399)
+    kit = ProductRecord(name="Julldent Zygo kit", price=25995)
+    assert structured_match(box, kit).verdict is StructuredVerdict.REJECTED
+    # But a same-KIND near-name with a sane price still matches (no false reject).
+    reel = structured_match(
+        ProductRecord(name="Meril Filasilk Silk Suture Reel #2-0 - 25Mtr",
+                      price=395, description="silk suture"),
+        ProductRecord(name="Meril Filasilk #2-0 Silk Suture",
+                      price=609, description="silk suture"))
+    assert reel.verdict is StructuredVerdict.CONFIRMED
+
+
 def test_description_boost_never_creates_cross_product_match():
     """Tray adhesive vs impression tray must stay rejected even with descriptions."""
     inp = ProductRecord(name="Maarc Dental Tray Adeziv With Thinner", price=545,

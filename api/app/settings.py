@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     # product no matter how cosine-similar their names look.
     price_band_max_ratio: float = 5.0
 
+    # A per-unit price gap beyond THIS multiple can't be a pack/form difference
+    # (pack is already normalized out) — it's a different product, and even a
+    # near-identical name can't override it. A storage "Zygo Box" (₹2399) is not
+    # the "Zygo kit" that holds it (₹25,995) at 10.8x.
+    price_band_hard_ratio: float = 8.0
+
     # ── Exact-match pipeline ────────────────────────────────
     # LLM borderline judge (Approach C). Empty key disables the judge;
     # the pipeline then runs as pure rules (Approach A).
