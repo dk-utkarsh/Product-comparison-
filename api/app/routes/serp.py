@@ -35,21 +35,44 @@ def _no_match(cid: str, cname: str, seen: int) -> CompetitorMatch:
     )
 
 
-async def _match_competitor(cid: str, cname: str, url: str | None,
+# How many of Google's top candidates per source to verify through the matcher.
+_MAX_CANDIDATES = 4
+
+
+async def _match_competitor(cid: str, cname: str, urls: list[str],
                             ref: ProductRecord, dk_price: float | None) -> CompetitorMatch:
-    if not url:
+    """Verify Google's top candidate PDPs for this source (in page order) through
+    the SAME matcher used by /compare — brand gate → structured match (name/code/
+    sub-variant) — and keep the best one. Earlier-ranked candidates win ties, so a
+    near-duplicate sibling (EXA6) can't beat the correct earlier hit (EXS6)."""
+    if not urls:
         return _no_match(cid, cname, 0)
-    pdp = await fetch_product(cid, url)
-    if pdp is None:
-        return _no_match(cid, cname, 1)
-    pipeline.select_variant(pdp, ref.variant_spec, dk_price, ref.name)
+
+    async def evaluate(url: str) -> tuple[float, str, object, object] | None:
+        pdp = await fetch_product(cid, url)
+        if pdp is None:
+            return None
+        pipeline.select_variant(pdp, ref.variant_spec, dk_price, ref.name)
+        rec = pipeline.record_from(pdp)
+        sm = structured_match(ref, rec)
+        if sm.verdict is StructuredVerdict.REJECTED:
+            return None  # gate / code / type rejected this candidate
+        tri = triage_batch(ref.name, [rec.name])
+        score = max(tri[0].score if tri else 0.0, sm.features.cosine)
+        return (score, "confirmed" if sm.verdict is StructuredVerdict.CONFIRMED else "possible",
+                pdp, sm)
+
+    cands = urls[:_MAX_CANDIDATES]
+    seen = len(cands)
+    results = await asyncio.gather(*(evaluate(u) for u in cands))
+    scored = [r for r in results if r is not None]
+    if not scored:
+        return _no_match(cid, cname, seen)
+    # Prefer CONFIRMED over possible, then higher score. gather preserves page
+    # order, and max() keeps the FIRST max on ties → earlier Google rank wins.
+    best = max(scored, key=lambda r: (r[1] == "confirmed", r[0]))
+    score, verdict, pdp, sm = best
     rec = pipeline.record_from(pdp)
-    sm = structured_match(ref, rec)
-    if sm.verdict is StructuredVerdict.REJECTED:
-        return _no_match(cid, cname, 1)
-    tri = triage_batch(ref.name, [rec.name])
-    score = max(tri[0].score if tri else 0.0, sm.features.cosine)
-    verdict = "confirmed" if sm.verdict is StructuredVerdict.CONFIRMED else "possible"
     # SerpAPI already pinned this EXACT PDP on the competitor's own site, and it
     # cleared both the gates and the structured match (not REJECTED) — three
     # independent identity checks. That discovery signal is strong, so surface
@@ -63,7 +86,7 @@ async def _match_competitor(cid: str, cname: str, url: str | None,
     score = max(score, 0.70)
     diff = round(dk_price - rec.price, 2) if dk_price and rec.price else None
     return CompetitorMatch(
-        competitor_id=cid, competitor_name=cname, candidates_seen=1,
+        competitor_id=cid, competitor_name=cname, candidates_seen=seen,
         matched_name=rec.name, matched_url=pdp.url, matched_price=rec.price,
         matched_image=pdp.image, in_stock=pdp.in_stock, verdict=verdict,
         score=score, cosine=sm.features.cosine, reasons=list(sm.reasons),
@@ -78,12 +101,12 @@ async def serp_urls(name: str) -> dict:
 
 @router.get("/compare", response_model=CompareResult)
 async def serp_compare(name: str) -> CompareResult:
-    urls = await serp.serp_product_urls(name)
+    cands = await serp.serp_product_candidates(name)
 
     # DentalKart anchor — resolve its PDP (+ sub-variant) via our DK logic.
     dk_match = None
     dk_record = None
-    dk_url = urls.get("dentalkart")
+    dk_url = (cands.get("dentalkart") or [None])[0]
     if dk_url:
         dk_pdp = await fetch_product("dentalkart", dk_url)
         if dk_pdp is not None:
@@ -95,7 +118,7 @@ async def serp_compare(name: str) -> CompareResult:
     dk_price = dk_match.matched_price if dk_match else None
 
     comps = await asyncio.gather(
-        *(_match_competitor(cid, cname, urls.get(cid), ref, dk_price)
+        *(_match_competitor(cid, cname, cands.get(cid) or [], ref, dk_price)
           for cid, cname in COMPETITORS)
     )
     return CompareResult(dentalkart=DkRow(name=name), dentalkart_match=dk_match,

@@ -89,28 +89,45 @@ async def _search(client: httpx.AsyncClient, key: str, query: str) -> list[dict]
         return []
 
 
-async def serp_product_urls(name: str) -> dict[str, str]:
-    """{ 'dentalkart'|'pinkblue'|… : best_pdp_url } for a product, via Google."""
+async def serp_product_candidates(name: str) -> dict[str, list[str]]:
+    """{ 'dentalkart'|'pinkblue'|… : [pdp_url, …] } — the candidate PDPs per source
+    in Google PAGE ORDER (most relevant first), deduped. The caller runs each
+    through the matcher and keeps the best-VERIFIED one, instead of us pre-guessing
+    a single URL by slug overlap (which can pick the wrong near-duplicate sibling,
+    e.g. the EXA6 probe over the EXS6 one). Page order is preserved so the matcher
+    can prefer earlier-ranked candidates on a tie. A `site:<domain>` query backfills
+    sources missing from the broad search. Costs no extra SerpAPI quota beyond the
+    searches already made — the per-candidate PDP fetches go through our scraper."""
     s = get_settings()
     if not s.serp_enabled or not s.serpapi_key or not name:
         return {}
     query = base_name(name) or name          # short query → long titles still match
     name_toks = _toks(name)
 
-    def best(links: list[str]) -> str:
-        return max(links, key=lambda l: len(_slug_toks(l) & name_toks))
+    def ordered(links: list[str]) -> list[str]:
+        # Dedup on the URL minus its query string (keep earliest occurrence), then
+        # stable-sort so links whose slug shares more of the product's tokens float
+        # up — Python's sort is stable, so equal-overlap links keep Google's order.
+        uniq = list(dict.fromkeys(l.split("?", 1)[0] for l in links))
+        return sorted(uniq, key=lambda l: -len(_slug_toks(l) & name_toks))
 
-    out: dict[str, str] = {}
+    out: dict[str, list[str]] = {}
     async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
         for cid, links in _collect(await _search(client, s.serpapi_key, query)).items():
-            out[cid] = best(links)
+            out[cid] = ordered(links)
         if s.serp_site_fallback:
             for domain, cid in _DOMAINS.items():
-                if cid in out:
+                if out.get(cid):
                     continue
                 org = await _search(client, s.serpapi_key, f"{query} site:{domain}")
                 links = [str(o.get("link") or "") for o in org
                          if domain in str(o.get("link") or "") and _is_pdp(str(o.get("link") or ""))]
                 if links:
-                    out[cid] = best(links)
+                    out[cid] = ordered(links)
     return out
+
+
+async def serp_product_urls(name: str) -> dict[str, str]:
+    """{ source : best_pdp_url } — the single top candidate per source (debug /
+    back-compat). Prefer serp_product_candidates() for matching."""
+    return {cid: links[0] for cid, links in (await serp_product_candidates(name)).items() if links}
