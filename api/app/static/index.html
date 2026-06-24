@@ -1248,30 +1248,66 @@ async function loadProductHistory(i, name) {
 }
 
 // Pricing-position analytics over a set of results (DK vs matched competitors).
+// Each product is bucketed so the UI can list the EXACT products per category.
 function pricingInsights(results) {
-  const rows = [];
-  let highest = 0, lowest = 0, mid = 0, aboveCheapest = 0, totalHeadroom = 0;
+  const B = { lowest: [], highest: [], mid: [], aboveCheapest: [], headroom: [] };
+  let totalHeadroom = 0;
   for (const r of results || []) {
     const dk = r.dentalkart_match?.matched_price;
     if (dk == null || dk <= 0) continue;
     const comps = (r.competitors || [])
       .filter(isShownMatch)
-      .map((c) => ({ id: c.competitor_id, price: c.matched_price }))
+      .map((c) => ({ id: c.competitor_id, price: c.matched_price, url: c.matched_url }))
       .filter((c) => c.price > 0);
     if (!comps.length) continue;
     const prices = comps.map((c) => c.price);
     const maxC = Math.max(...prices), minC = Math.min(...prices);
-    const isHighest = dk > maxC, isLowest = dk < minC;
-    if (isHighest) highest++; else if (isLowest) lowest++; else mid++;
-    if (dk > minC) aboveCheapest++;
     const headroom = dk < maxC ? Math.round(maxC - dk) : 0;
-    totalHeadroom += headroom;
-    rows.push({
-      name: r.dentalkart.name, dk, maxC, minC, headroom,
-      topComp: comps.find((c) => c.price === maxC)?.id || "",
-    });
+    const row = {
+      name: r.dentalkart.name, dk, dkUrl: r.dentalkart_match?.matched_url || "",
+      comps, maxC, minC, headroom, topComp: comps.find((c) => c.price === maxC)?.id || "",
+    };
+    if (dk > maxC) B.highest.push(row);
+    else if (dk < minC) B.lowest.push(row);
+    else B.mid.push(row);
+    if (dk > minC) B.aboveCheapest.push(row);
+    if (headroom > 0) { B.headroom.push(row); totalHeadroom += headroom; }
   }
-  return { counted: rows.length, highest, lowest, mid, aboveCheapest, totalHeadroom, rows };
+  const counted = B.lowest.length + B.highest.length + B.mid.length;
+  return { counted, buckets: B, totalHeadroom };
+}
+
+window._PI = {};   // elId -> rendered per-bucket product tables (for the toggles)
+const _PI_LABELS = {
+  lowest: "DK is the cheapest — products where DK beats every competitor",
+  highest: "DK is the most expensive — products priced above every competitor",
+  mid: "DK is in between — neither cheapest nor priciest",
+  aboveCheapest: "DK is above the cheapest competitor",
+  headroom: "Raise opportunities — increase price and stay under the priciest competitor",
+};
+function _piTable(rows, kind) {
+  if (!rows.length) return `<div style="font-size:13px;color:var(--ink-mute);padding:6px 2px;">No products in this category.</div>`;
+  const sorted = kind === "headroom" ? rows.slice().sort((a, b) => b.headroom - a.headroom) : rows;
+  return `<div style="overflow-x:auto;"><table class="compare-table">
+    <thead><tr><th>Product (DK ↗)</th><th>DK price</th><th>Competitors (↗)</th>${kind === "headroom" ? "<th>Raise up to</th>" : ""}</tr></thead>
+    <tbody>${sorted.map((r) => `
+      <tr>
+        <td><div class="product-name" style="max-width:none;">${r.dkUrl ? `<a class="cell-link" href="${enc(r.dkUrl)}" target="_blank" rel="noopener">${enc(r.name)} ↗</a>` : enc(r.name)}</div></td>
+        <td class="mono">${fmtMoney(r.dk)}</td>
+        <td style="font-size:12px;">${r.comps.map((c) => c.url
+          ? `<a class="cell-link" href="${enc(c.url)}" target="_blank" rel="noopener">${enc(c.id)} ${fmtMoney(c.price)} ↗</a>`
+          : `${enc(c.id)} ${fmtMoney(c.price)}`).join("<br>")}</td>
+        ${kind === "headroom" ? `<td class="mono"><strong style="color:var(--emerald,#0a7d4f);">+${fmtMoney(r.headroom)}</strong></td>` : ""}
+      </tr>`).join("")}</tbody>
+  </table></div>`;
+}
+function togglePiBucket(elId, key) {
+  const d = $(elId + "-pi-detail");
+  if (!d) return;
+  if (d.dataset.open === key) { d.style.display = "none"; d.dataset.open = ""; return; }
+  const panels = window._PI[elId] || {};
+  d.innerHTML = `<div style="font-size:12px;color:var(--ink-mute);margin:2px 0 6px;">${_PI_LABELS[key] || ""}</div>${panels[key] || ""}`;
+  d.style.display = "block"; d.dataset.open = key;
 }
 
 function renderPricingInsights(results, elId) {
@@ -1279,33 +1315,26 @@ function renderPricingInsights(results, elId) {
   if (!el) return;
   const s = pricingInsights(results);
   if (!s.counted) { el.innerHTML = ""; return; }
-  const opps = s.rows.filter((r) => r.headroom > 0).sort((a, b) => b.headroom - a.headroom);
-  const oppRows = opps.slice(0, 12).map((r) => `
-    <tr>
-      <td><div class="product-name">${enc(r.name)}</div></td>
-      <td class="mono">${fmtMoney(r.dk)}</td>
-      <td class="mono">${fmtMoney(r.maxC)} <span style="color:var(--ink-mute);font-size:11px;">(${enc(r.topComp)})</span></td>
-      <td class="mono"><strong style="color:var(--emerald,#0a7d4f);">+${fmtMoney(r.headroom)}</strong></td>
-    </tr>`).join("");
+  const B = s.buckets;
+  // Pre-render each bucket's product table so the pills can toggle them.
+  window._PI[elId] = {
+    lowest: _piTable(B.lowest), highest: _piTable(B.highest), mid: _piTable(B.mid),
+    aboveCheapest: _piTable(B.aboveCheapest), headroom: _piTable(B.headroom, "headroom"),
+  };
+  const pill = (key, cls, label) =>
+    `<span class="pill ${cls}" style="cursor:pointer;" title="Click to see these products" onclick="togglePiBucket('${elId}','${key}')">${label} ▾</span>`;
   el.innerHTML = `
     <div class="card" style="margin:14px 0 18px; background:var(--surface,#fafafa);">
-      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;">
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:4px;">
         <strong style="margin-right:6px;">Pricing insights</strong>
-        <span class="pill emerald">Lowest on ${s.lowest}</span>
-        <span class="pill rust">Most expensive on ${s.highest}</span>
-        <span class="pill">In&nbsp;between ${s.mid}</span>
-        <span class="pill">Above cheapest comp.: ${s.aboveCheapest}</span>
-        <span class="pill">Total raise-headroom ${fmtMoney(s.totalHeadroom)}</span>
-        <span style="color:var(--ink-mute);font-size:12px;">over ${s.counted} products with a competitor match</span>
+        ${pill("lowest", "emerald", `Lowest on ${B.lowest.length}`)}
+        ${pill("highest", "rust", `Most expensive on ${B.highest.length}`)}
+        ${pill("mid", "", `In&nbsp;between ${B.mid.length}`)}
+        ${pill("aboveCheapest", "", `Above cheapest comp.: ${B.aboveCheapest.length}`)}
+        ${pill("headroom", "", `Raise-headroom ${fmtMoney(s.totalHeadroom)} (${B.headroom.length})`)}
+        <span style="color:var(--ink-mute);font-size:12px;">over ${s.counted} products with a competitor match · click a tag</span>
       </div>
-      ${opps.length ? `
-      <div style="font-size:13px;color:var(--ink-mute);margin:6px 0;">Top raise opportunities — how much you can increase price and stay under the priciest competitor:</div>
-      <div style="overflow-x:auto;">
-        <table class="compare-table">
-          <thead><tr><th>Product</th><th>DK price</th><th>Highest competitor</th><th>Raise up to</th></tr></thead>
-          <tbody>${oppRows}</tbody>
-        </table>
-      </div>` : `<div style="font-size:13px;color:var(--ink-mute);">No raise headroom — DK is at or above the top competitor on all matched products.</div>`}
+      <div id="${elId}-pi-detail" data-open="" style="display:none;margin-top:10px;"></div>
     </div>`;
 }
 
