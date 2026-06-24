@@ -689,6 +689,7 @@
             products
             <input id="runCount" type="number" min="1" max="200" value="50" style="width:64px;padding:6px 8px;" title="How many products this run pulls (watchlist + random). Max 200." />
           </label>
+          <button class="btn-ghost" id="refreshRunsBtn" style="padding:8px 14px;" title="Reload the runs list">↻ Refresh</button>
           <button class="btn-primary" id="runNowBtn" style="padding:8px 16px;">Run now</button>
         </div>
       </div>
@@ -1416,12 +1417,16 @@ function showCompare() {
   $("runs-section").style.display = "none";
   $("hero").style.display = "";
   $("upload-section").style.display = "";
+  if (typeof RUNS_POLL !== "undefined" && RUNS_POLL) { clearInterval(RUNS_POLL); RUNS_POLL = null; }
+  if (location.hash === "#runs") history.replaceState(null, "", location.pathname + location.search);
 }
 function showRuns() {
   COMPARE_SECTIONS.forEach((id) => { const el = $(id); if (el) el.style.display = "none"; });
   $("runs-section").style.display = "block";
   requestAnimationFrame(() => $("runs-section").classList.add("in"));
   $("run-detail-card").style.display = "none";
+  // Remember the view so a page refresh returns here instead of the homepage.
+  if (location.hash !== "#runs") history.replaceState(null, "", "#runs");
   loadRuns();
 }
 
@@ -1612,18 +1617,42 @@ window.compareRuns = compareRuns;
 $("nav-runs").addEventListener("click", (e) => { e.preventDefault(); showRuns(); });
 $("nav-compare").addEventListener("click", (e) => { e.preventDefault(); showCompare(); });
 $("runs-back").addEventListener("click", (e) => { e.preventDefault(); $("run-detail-card").style.display = "none"; });
+$("refreshRunsBtn").addEventListener("click", () => loadRuns());
+
+// Poll the runs list until the newest run finishes, so the UI updates live
+// without a manual page refresh. Cleared when the run is done or the user leaves.
+let RUNS_POLL = null;
+function pollRunsUntilDone() {
+  if (RUNS_POLL) clearInterval(RUNS_POLL);
+  let ticks = 0;
+  RUNS_POLL = setInterval(async () => {
+    ticks++;
+    await loadRuns();
+    let top = null;
+    try { top = (await (await fetch("/runs")).json()).runs[0]; } catch (_) {}
+    // Stop when the newest run is no longer running, or after ~5 min as a backstop.
+    if (!top || top.status !== "running" || ticks > 100) {
+      clearInterval(RUNS_POLL); RUNS_POLL = null;
+    }
+  }, 3000);
+}
+
 $("runNowBtn").addEventListener("click", async () => {
   const btn = $("runNowBtn");
+  const serp = $("runSerp").checked;
+  const cap = serp ? 15 : 200;
+  const count = Math.max(1, Math.min(parseInt($("runCount").value, 10) || (serp ? 10 : 50), cap));
+  if (serp && !confirm(`Run ${count} product(s) through Google (SerpAPI)?\n\nThis spends ~${count * 2} of your ~100 monthly Google searches.`)) {
+    return;
+  }
   btn.disabled = true; btn.textContent = "Starting…";
   try {
-    const serp = $("runSerp").checked;
-    const cap = serp ? 15 : 200;
-    const count = Math.max(1, Math.min(parseInt($("runCount").value, 10) || (serp ? 10 : 50), cap));
-    if (serp && !confirm(`Run ${count} product(s) through Google (SerpAPI)?\n\nThis spends ~${count * 2} of your ~100 monthly Google searches.`)) {
-      return;
-    }
-    await fetch(`/runs/trigger?count=${count}${serp ? "&serp=1" : ""}`, { method: "POST" });
-    setTimeout(loadRuns, 1500);
+    const r = await fetch(`/runs/trigger?count=${count}${serp ? "&serp=1" : ""}`, { method: "POST" });
+    const d = await r.json();
+    $("runs-summary").innerHTML = `<span class="pill emerald">Run started · ${d.count} products${serp ? " · 🔍 Google" : ""} — refreshing live…</span>`;
+    setTimeout(() => { loadRuns(); pollRunsUntilDone(); }, 1200);
+  } catch (e) {
+    $("runs-summary").innerHTML = `<span class="status-msg err">Failed to start run: ${enc(e.message)}</span>`;
   } finally {
     setTimeout(() => { btn.disabled = false; btn.textContent = "Run now"; }, 2500);
   }
@@ -1644,6 +1673,10 @@ $("runNowBtn").addEventListener("click", async () => {
 })();
 
 refreshFeedbackCount();
+
+// Restore the Scheduled-Runs view on reload if that's where the user was, so a
+// refresh doesn't dump them back on the homepage.
+if (location.hash === "#runs") showRuns();
 
 logLine("ready");
 </script>
