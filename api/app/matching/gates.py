@@ -127,9 +127,37 @@ _BRAND_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+# Words that introduce a COMPATIBILITY reference rather than the product's own
+# brand. "Dental Apex Locator Cable For E2ZZ, J-Morita" is a third-party cable
+# that FITS J-Morita — not a J-Morita product. ("by"/"from" = made-by, NOT here.)
+_COMPAT_MARKERS = frozenset({
+    "for", "fits", "fit", "compatible", "compatibles", "suitable",
+    "replacement", "spare", "compatibility",
+})
+
+
+def _brand_compat_only(found: str, brand: str) -> bool:
+    """True when the brand appears in `found` ONLY as a compatibility reference —
+    i.e. NOT in the first few words (where a real brand lives) AND introduced by a
+    compatibility marker ('… For E2ZZ, J-Morita'). Brands belong at the start; a
+    brand mentioned only after 'For/Fits/Compatible' names what the item FITS."""
+    bwords = brand.split()
+    words = re.sub(r"[^a-z0-9 ]", " ", found.lower()).split()
+    first = next(
+        (i for i in range(len(words)) if words[i:i + len(bwords)] == bwords), None
+    )
+    if first is None or first <= 2:   # brand at/near the start = the real brand
+        return False
+    return any(w in _COMPAT_MARKERS for w in words[:first])
+
+
 def _brand_match(a: Attributes, search: str, found: str) -> bool:
     if not a.brand:
         return True
+    # A brand that shows up only as "… For <brand>" is a compatibility note, not
+    # the product's brand — reject before the lenient containment checks below.
+    if _brand_compat_only(found, a.brand):
+        return False
     if _word_boundary(found, a.brand):
         return True
     for alias in _BRAND_ALIASES.get(a.brand, ()):

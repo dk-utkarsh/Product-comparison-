@@ -82,6 +82,12 @@ GATE_CASES = [
      "3M ESPE Ketac Cem Glass Ionomer Luting Cement", False, "restorative≠luting"),
     ("3M ESPE Ketac Molar Glass Ionomer Restorative Cement",
      "3M ESPE Ketac Molar GI Filling Cement", True, "restorative vs filling (same fn)"),
+    # A brand mentioned only as a COMPATIBILITY note ("… For E2ZZ, J-Morita") is
+    # not the product's brand — that's a third-party part that FITS J-Morita.
+    ("J Morita ZX Apex Locator Accessories",
+     "Dental Apex Locator Main Cable For E2ZZ, J-Morita", False, "compatible-with ≠ brand"),
+    ("Dentsply Protaper Next Files",
+     "Generic Rotary Files Compatible With Dentsply Protaper", False, "compatible-with ≠ brand"),
 ]
 
 
