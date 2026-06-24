@@ -143,6 +143,27 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-24 — UI: Google/SerpAPI toggle, custom run-size, all-time accuracy visible
+
+- **Google (SerpAPI) toggle** in the Quick-search card. ON → the single search
+  hits `/serp/compare` (Google finds each competitor's exact PDP, our matcher
+  verifies) instead of `/compare/single`; a "🔍 via Google" badge marks the
+  result. Applies to the single search only — the batch upload stays on the
+  standard pipeline (SerpAPI free tier = 100 searches/month, so a full sheet
+  would exhaust it). (`static/index.html`)
+- **Multi-candidate SerpAPI** (`serp.py`/`routes/serp.py`): per source, return ALL
+  PDP candidates in Google page order and verify the top 4 through the matcher,
+  keeping the best (earlier rank wins ties). No extra SerpAPI quota — candidate
+  PDP fetches use our scraper. Spencer Scissors now finds both competitors.
+- **Custom run size**: `POST /runs/trigger?count=N` (1–200) overrides the default
+  50; `_build_run_products(count)` honours it (watchlist capped to count). UI: a
+  "products" number box next to "Run now". (`routes/runs.py`, `scheduler.py`)
+- **All-time accuracy visible**: the Scheduled-Runs header now shows "All-time
+  accuracy X%" from `/reviews/summary` (persisted across reloads, not just the
+  flash after submitting). NB: the existing 50 reviews have `run_id=NULL` (they
+  were submitted from the live view), so per-run accuracy still reads "—" until
+  reviews are submitted from an opened run detail (which sets CURRENT_RUN_ID).
+
 ### 2026-06-24 — WHO-probe deep dive: selective loosening (grouped-child + SKU-code + brand inheritance + SerpAPI display)
 
 Driven by the example "Oracraft Single Ended WHO Screening Probe #3 - PCP11.5B"

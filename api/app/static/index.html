@@ -523,6 +523,15 @@
       <div class="card">
         <p class="section-label"><span class="num">1</span>Quick search</p>
         <p class="helper-text">Type one product name to test a single comparison.</p>
+        <label id="serpToggleWrap" style="display:inline-flex;align-items:center;gap:9px;margin:2px 0 14px;cursor:pointer;user-select:none;font-size:13px;">
+          <span style="position:relative;display:inline-block;width:38px;height:22px;flex:0 0 auto;">
+            <input type="checkbox" id="serpToggle" style="opacity:0;width:0;height:0;position:absolute;" />
+            <span id="serpKnob" style="position:absolute;inset:0;background:var(--line,#d2d2d7);border-radius:22px;transition:.18s;"></span>
+          </span>
+          <span><strong>🔍 Use Google (SerpAPI)</strong> — find each competitor's exact page via Google instead of our own search.
+            <span style="color:var(--ink-mute);">Applies to this single search only; the batch upload below always uses the standard search (Google quota is limited).</span>
+          </span>
+        </label>
         <div class="quick-row">
           <input
             type="text"
@@ -666,8 +675,12 @@
     <div class="card results-card">
       <div class="results-head">
         <h2>Scheduled Runs <span style="color:var(--ink-mute);font-weight:400;font-size:14px;margin-left:6px;">— 5×/day, fresh random SKUs from the catalog</span></h2>
-        <div style="display:flex;align-items:center;gap:12px;">
+        <div style="display:flex;align-items:center;gap:10px;">
           <span class="results-summary" id="runs-summary"></span>
+          <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-mute);">
+            products
+            <input id="runCount" type="number" min="1" max="200" value="50" style="width:64px;padding:6px 8px;" title="How many products this run pulls (watchlist + random). Max 200." />
+          </label>
           <button class="btn-primary" id="runNowBtn" style="padding:8px 16px;">Run now</button>
         </div>
       </div>
@@ -892,27 +905,43 @@ async function runQuick() {
   setRunning("single", name);
 
   currentAbort = new AbortController();
+  const useSerp = $("serpToggle").checked;
+  if (useSerp) $("lt-sub").textContent = "Google (SerpAPI) is finding each competitor's exact product page, then our matcher verifies it.";
   let res;
   try {
-    res = await fetch("/compare/single", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name }),
-      signal: currentAbort.signal,
-    });
+    res = useSerp
+      ? await fetch(`/serp/compare?name=${encodeURIComponent(name)}`, { signal: currentAbort.signal })
+      : await fetch("/compare/single", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name }),
+          signal: currentAbort.signal,
+        });
   } catch (e) {
     if (e.name === "AbortError") return;
     setIdle();
     $("quick-status").innerHTML = `<span class="status-msg err">Network error: ${enc(e.message)}</span>`;
     return;
   }
-  await handleResponse(res, "single");
+  await handleResponse(res, "single", useSerp);
 }
 quickGo.addEventListener("click", runQuick);
 quickInput.addEventListener("keydown", (e) => { if (e.key === "Enter") runQuick(); });
 
+/* ── Google/SerpAPI toggle (single search only) ── */
+(function () {
+  const t = $("serpToggle"), knob = $("serpKnob");
+  function paint() {
+    knob.style.background = t.checked ? "var(--accent, #0071e3)" : "var(--line, #d2d2d7)";
+    knob.style.boxShadow = t.checked ? "inset 0 0 0 1px var(--accent,#0071e3)" : "none";
+    knob.innerHTML = `<span style="position:absolute;top:2px;left:${t.checked ? "18px" : "2px"};width:18px;height:18px;background:#fff;border-radius:50%;transition:.18s;box-shadow:0 1px 2px rgba(0,0,0,.3);"></span>`;
+  }
+  t.addEventListener("change", paint);
+  paint();
+})();
+
 /* ── Response handling ──────────────── */
-async function handleResponse(res, mode) {
+async function handleResponse(res, mode, viaSerp) {
   if (!res.ok) {
     setIdle();
     const err = await res.json().catch(() => ({}));
@@ -932,7 +961,8 @@ async function handleResponse(res, mode) {
     : data;
 
   const target = mode === "single" ? "quick-status" : "status";
-  $(target).innerHTML = `<span class="status-msg ok">Done — matched ${payload.total} ${payload.total === 1 ? "product" : "products"} in ${elapsed}s.</span>`;
+  const badge = viaSerp ? ` <span class="label" style="background:var(--accent,#0071e3);color:#fff;padding:1px 8px;border-radius:10px;font-size:11px;">🔍 via Google</span>` : "";
+  $(target).innerHTML = `<span class="status-msg ok">Done — matched ${payload.total} ${payload.total === 1 ? "product" : "products"} in ${elapsed}s.</span>${badge}`;
   renderResults(payload, elapsed);
 }
 
@@ -1391,7 +1421,14 @@ async function loadRuns() {
     const r = await fetch("/runs");
     const data = await r.json();
     const runs = data.runs || [];
-    $("runs-summary").innerHTML = `<span class="pill">${runs.length} runs</span>`;
+    // All-time accuracy from every human review (persisted), shown so past
+    // accuracy is always visible — not just for a moment after submitting.
+    let allTime = "";
+    try {
+      const s = await (await fetch("/reviews/summary")).json();
+      if (s && s.total) allTime = `<span class="pill emerald" title="${s.correct}/${s.total} reviewed correct across all reviews">All-time accuracy ${s.accuracy}%</span>`;
+    } catch (_) {}
+    $("runs-summary").innerHTML = `<span class="pill">${runs.length} runs</span> ${allTime}`;
     if (!runs.length) {
       $("runs-list").innerHTML = `<div class="status-msg">No runs yet. They fire 5×/day automatically, or hit “Run now”.</div>`;
       return;
@@ -1481,7 +1518,8 @@ $("runNowBtn").addEventListener("click", async () => {
   const btn = $("runNowBtn");
   btn.disabled = true; btn.textContent = "Starting…";
   try {
-    await fetch("/runs/trigger", { method: "POST" });
+    const count = Math.max(1, Math.min(parseInt($("runCount").value, 10) || 50, 200));
+    await fetch(`/runs/trigger?count=${count}`, { method: "POST" });
     setTimeout(loadRuns, 1500);
   } finally {
     setTimeout(() => { btn.disabled = false; btn.textContent = "Run now"; }, 2500);

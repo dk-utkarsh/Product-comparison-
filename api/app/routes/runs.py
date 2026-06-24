@@ -60,7 +60,10 @@ def get_run(run_id: int) -> dict:
 
 
 @router.post("/trigger")
-async def trigger_run() -> dict:
+async def trigger_run(count: int | None = None) -> dict:
     # Fire-and-forget so the request returns immediately; the UI polls /runs.
-    asyncio.create_task(execute_run("manual"))
-    return {"status": "started"}
+    # `count` overrides the default run size (watchlist + random) for a one-off
+    # test of a custom number of products.
+    n = max(1, min(count, 200)) if count else None
+    asyncio.create_task(execute_run("manual", count=n))
+    return {"status": "started", "count": n}

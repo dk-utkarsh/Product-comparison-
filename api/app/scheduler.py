@@ -53,15 +53,17 @@ def _next_fire(now: datetime, times: list[tuple[int, int]]) -> datetime:
     return first + timedelta(days=1)
 
 
-async def _build_run_products() -> list:
+async def _build_run_products(count: int | None = None) -> list:
     """The run set = the FIXED watchlist (seeded once, then constant) + fresh
     random products filling the rest. Keeping the watchlist constant gives the
-    price-history feature a continuous series across runs."""
+    price-history feature a continuous series across runs. `count` overrides the
+    total run size (defaults to scheduled_skus_per_run)."""
     from app.dk_admin import AdminProduct, fetch_random_skus
     s = get_settings()
     tz = ZoneInfo(s.scheduled_run_tz)
 
-    size = s.scheduled_watchlist_size
+    total = count or s.scheduled_skus_per_run
+    size = min(s.scheduled_watchlist_size, total)
     wl = run_store.get_watchlist()
     if len(wl) < size:  # seed the watchlist once from random products
         seed = await fetch_random_skus(size - len(wl))
@@ -79,16 +81,16 @@ async def _build_run_products() -> list:
 
     fixed = [AdminProduct(sku=w["sku"], name=w["name"]) for w in wl]
     wl_skus = {w["sku"] for w in wl}
-    n_random = max(0, s.scheduled_skus_per_run - len(fixed))
+    n_random = max(0, total - len(fixed))
     rand = [p for p in await fetch_random_skus(n_random + 15) if p.sku not in wl_skus][:n_random]
     return fixed + rand
 
 
 async def execute_run(trigger: str = "manual", products: list | None = None,
-                      source_run_id: int | None = None) -> int:
+                      source_run_id: int | None = None, count: int | None = None) -> int:
     """Run one batch: compare each product → persist. `products` (each with
     .sku/.name) lets a re-run replay an exact past set; otherwise watchlist +
-    random. Returns run_id."""
+    random (`count` overrides the run size). Returns run_id."""
     # Imported lazily to avoid an import cycle (routes.compare imports heavy deps).
     from app.db import get_db
     from app.routes.compare import _compare_one, DkRow
@@ -100,7 +102,7 @@ async def execute_run(trigger: str = "manual", products: list | None = None,
     tz = ZoneInfo(s.scheduled_run_tz)
     started = datetime.now(tz).isoformat(timespec="seconds")
     if products is None:
-        products = await _build_run_products()
+        products = await _build_run_products(count)
     run_id = run_store.create_run(started, trigger, len(products), source_run_id)
     log.info("scheduled-run start", run_id=run_id, trigger=trigger, skus=len(products))
 
