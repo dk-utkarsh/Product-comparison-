@@ -200,6 +200,16 @@ def gate_check(search: str, found: str) -> GateResult:
     if s_attrs.shade and f_attrs.shade and s_attrs.shade != f_attrs.shade:
         return GateResult(False, f"shade mismatch: {s_attrs.shade} vs {f_attrs.shade}")
 
+    # Colour variant: same item in a different colour is a different product
+    # ("Kalabhai Ultra Rock Die (Brown)" ≠ "(Yellow)"). Fire only when BOTH names
+    # carry colours that are DISJOINT — sharing one (e.g. "Blue & Red" vs "Blue")
+    # is not a mismatch, and a one-sided colour never gates.
+    if s_attrs.colors and f_attrs.colors and not (s_attrs.colors & f_attrs.colors):
+        return GateResult(
+            False,
+            f"colour mismatch: {'/'.join(sorted(s_attrs.colors))} vs {'/'.join(sorted(f_attrs.colors))}",
+        )
+
     if (
         s_attrs.concentration is not None
         and f_attrs.concentration is not None

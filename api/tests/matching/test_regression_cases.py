@@ -59,6 +59,14 @@ GATE_CASES = [
     # matches (codes are one-sided → gate must not fire).
     ("Oracraft Single Ended WHO Screening Probe #3 - PCP11.5B",
      "Ora Craft Screening Single End (WHO Probe)", True, "WHO probe, code dropped"),
+    # Colour is a hard variant discriminator: same item, different colour = a
+    # different product. Disjoint colours reject; a shared/absent colour does not.
+    ("Kalabhai Ultra Rock Die (Brown) Stone (3kg)",
+     "Kalabhai Ultra Rock Die (Yellow) Stone (3kg)", False, "Brown != Yellow"),
+    ("Kalabhai Ultra Rock Die (Brown) Stone (3kg)",
+     "Kalabhai Ultra Rock Die (Brown) Stone (3kg)", True, "Brown == Brown"),
+    ("Kalabhai Ultra Rock Die (Brown) Stone (3kg)",
+     "Kalabhai Ultrarock Die Stone 3 Kg", True, "colour one-sided → no gate"),
 ]
 
 

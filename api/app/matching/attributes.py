@@ -24,6 +24,7 @@ class Attributes:
     dimension: str | None = None
     wire_form: str | None = None
     tip_number: int | None = None
+    colors: frozenset[str] = frozenset()
 
 
 _MODEL_RE = re.compile(r"\b([a-z]{1,5}-?\d{2,5}[a-z]?)\b", re.IGNORECASE)
@@ -37,6 +38,17 @@ _MODEL_RE = re.compile(r"\b([a-z]{1,5}-?\d{2,5}[a-z]?)\b", re.IGNORECASE)
 # guard drops common word+digit tokens that aren't codes.
 _SKU_RE = re.compile(r"\b([a-z]{3,5})(\d{1,4}[a-z]?)\b", re.IGNORECASE)
 _SKU_STOP = {"type", "size", "pack", "pair", "step", "size", "grit", "part"}
+
+# Colour variant words. Dental products (die stones, gypsum, denture bases,
+# elastics, articulating papers, retraction caps…) commonly ship the same item in
+# several colours that are DIFFERENT products: "Kalabhai Ultra Rock Die (Brown)"
+# ≠ "(Yellow)". When both names carry colours that are DISJOINT (no colour in
+# common) it's a different variant. Excludes "gold"/"silver"/"natural"/"ivory"
+# (usually a product-line or material descriptor, e.g. "GC Gold Label").
+_COLOR_WORDS = frozenset({
+    "brown", "yellow", "green", "blue", "red", "pink", "orange", "purple",
+    "violet", "white", "black", "grey", "gray", "maroon",
+})
 # Small instrument tip/size designator — "#6", "No. 3", "Excavator -1", "- 6".
 # Distinguishes hand-instrument tips that share the SAME model code
 # (GDC "…-1 EXC32L" vs "…- 6 EXC32L"). A hyphen designator must be SPACE-
@@ -155,6 +167,8 @@ def extract_attributes(name: str) -> Attributes:
     wf = _WIRE_FORM_RE.search(lower)
     wire_form = wf.group(1).lower() if wf else None
 
+    colors = frozenset(re.findall(r"[a-z]+", lower)) & _COLOR_WORDS
+
     tip_m = _TIP_RE.search(name)
     tip_number = int(tip_m.group(1)) if tip_m else None
     # A number that is actually the pack count ("Pack of 5" → 5) is not a tip.
@@ -175,6 +189,7 @@ def extract_attributes(name: str) -> Attributes:
         dimension=dimension,
         wire_form=wire_form,
         tip_number=tip_number,
+        colors=colors,
     )
 
 
