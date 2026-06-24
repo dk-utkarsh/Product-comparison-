@@ -1421,14 +1421,9 @@ async function loadRuns() {
     const r = await fetch("/runs");
     const data = await r.json();
     const runs = data.runs || [];
-    // All-time accuracy from every human review (persisted), shown so past
-    // accuracy is always visible — not just for a moment after submitting.
-    let allTime = "";
-    try {
-      const s = await (await fetch("/reviews/summary")).json();
-      if (s && s.total) allTime = `<span class="pill emerald" title="${s.correct}/${s.total} reviewed correct across all reviews">All-time accuracy ${s.accuracy}%</span>`;
-    } catch (_) {}
-    $("runs-summary").innerHTML = `<span class="pill">${runs.length} runs</span> ${allTime}`;
+    const reviewed = runs.filter((r) => r.review && r.review.reviewed).length;
+    $("runs-summary").innerHTML = `<span class="pill">${runs.length} runs</span>`
+      + (reviewed ? ` <span class="pill emerald" title="Runs with a human accuracy review">${reviewed} reviewed</span>` : "");
     if (!runs.length) {
       $("runs-list").innerHTML = `<div class="status-msg">No runs yet. They fire 5×/day automatically, or hit “Run now”.</div>`;
       return;
@@ -1438,8 +1433,8 @@ async function loadRuns() {
         : run.status === "running" ? `<span class="pill">running</span>`
         : `<span class="pill rust">${enc(run.status)}</span>`;
       const acc = run.review && run.review.reviewed
-        ? `<span class="pill" title="${run.review.correct}/${run.review.reviewed} reviewed">${run.review.accuracy}%</span>`
-        : `<span style="color:var(--ink-mute);font-size:12px;">—</span>`;
+        ? `<span class="pill emerald" title="${run.review.correct}/${run.review.reviewed} rows reviewed correct">${run.review.accuracy}%</span>`
+        : `<span style="color:var(--ink-mute);font-size:12px;" title="Open this run and review its rows to record accuracy">—</span>`;
       const src = run.source_run_id ? ` <span style="color:var(--ink-mute);font-size:11px;">(of #${run.source_run_id})</span>` : "";
       return `
         <tr>
