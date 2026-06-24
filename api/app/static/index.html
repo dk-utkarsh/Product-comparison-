@@ -1587,8 +1587,10 @@ async function compareRuns(rerunId) {
         if (a && !b) lWins++; if (!a && b) rWins++;
         cells += _cmpCell(a, b);
       }
-      const dkA = ra && ra.dentalkart_match, dkB = rb && rb.dentalkart_match;
-      const dkCell = `<td style="vertical-align:top;font-size:12px;word-break:break-word;overflow-wrap:anywhere;">${dkA ? enc(dkA.matched_name || "") + "<br><span class='mono'>" + fmtMoney(dkA.matched_price) + "</span>" : "<span style='color:var(--ink-mute)'>—</span>"}</td>`;
+      // DK can resolve differently between Standard and Google, so show BOTH
+      // sides (L/R) like the competitor columns — not just the source run.
+      const dkOf = (r) => { const m = r && r.dentalkart_match; return m ? { name: m.matched_name, price: m.matched_price, score: null, url: m.matched_url } : null; };
+      const dkCell = _cmpCell(dkOf(ra), dkOf(rb));
       return `<tr><td class="col-num">${i + 1}</td><td><div class="product-name" style="font-size:12px;max-width:none;word-break:break-word;overflow-wrap:anywhere;">${enc(nm)}</div></td>${dkCell}${cells}</tr>`;
     }).join("");
     $("run-detail-title").textContent = `Compare · ${labL} #${src.id}  vs  ${labR} #${rer.id}`;
@@ -1599,7 +1601,7 @@ async function compareRuns(rerunId) {
       ${lWins ? `<span class="pill rust" title="Matches L found that R missed">L found +${lWins}</span>` : ""}
       ${onlyL.length ? `<span class="pill" style="background:#eee;color:#555;" title="Only in #${src.id} — NOT tested by the other run, so not compared">${onlyL.length} only in #${src.id}</span>` : ""}
       ${onlyR.length ? `<span class="pill" style="background:#eee;color:#555;" title="Only in #${rer.id}">${onlyR.length} only in #${rer.id}</span>` : ""}`;
-    const head = `<th>#</th><th>Product</th><th>DK (L)</th>${COMPETITORS.map(([, n]) => `<th>${n}</th>`).join("")}`;
+    const head = `<th>#</th><th>Product</th><th>DK</th>${COMPETITORS.map(([, n]) => `<th>${n}</th>`).join("")}`;
     $("run-detail").innerHTML = `
       <div style="font-size:12px;color:var(--ink-mute);margin-bottom:8px;">
         <strong>L</strong> = ${labL} (run #${src.id}) · <strong>R</strong> = ${labR} (run #${rer.id}).
