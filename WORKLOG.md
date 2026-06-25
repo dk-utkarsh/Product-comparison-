@@ -143,6 +143,27 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-25 — Brand "compatible-with" guard, Google-rerun pairing, scheduler off
+
+- **Brand compatibility-reference guard** (`gates.py`): a brand mentioned only as
+  a fitment note — "Dental Apex Locator Cable **For E2ZZ, J-Morita**" — is a
+  third-party part that FITS J-Morita, not a J-Morita product. `_brand_compat_only`
+  rejects a brand that appears only after a compatibility marker (for/fits/
+  compatible/suitable/replacement/spare) and not in the first ~3 words. Brands at
+  the start, and "by/from" attributions (GC Fuji by GC), still pass. 37/37
+  regression (added J-Morita + Dentsply-Protaper cases).
+- **Google re-run pairing** (`routes/runs.py` + UI): a Google re-run now pins its
+  comparison base to the nearest STANDARD ancestor (always Standard L vs Google R,
+  never Google-vs-Google) and the UI auto-opens the ⇄ compare when it finishes —
+  no hunting for the new run. Verified: Google-rerun of #29 → standard #28.
+- **Automatic scheduler turned OFF** (`SCHEDULED_RUNS_ENABLED=0` in api/.env, local
+  config only). Manual "Run now", Google re-runs, uploads, compare all unaffected.
+- **SerpAPI key rotated** twice to fresh 250/month keys (api/.env, gitignored).
+  Earlier keys hit quota / one was invalid (24-char, not a real key).
+- **Jira draft** (story + 6 merged sub-tasks, plain-English) prepared for manual
+  entry — covers the 2-day effort + the to-do (accuracy harness, confirmed-link
+  cache, cross-competitor variant alignment). No Jira MCP connected, so not filed.
+
 ### 2026-06-24 — UI/UX batch + diff-aware contrast gate + scraper price fix
 
 Grouping several same-day changes that landed as their own commits:
