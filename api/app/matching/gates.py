@@ -118,8 +118,14 @@ def _no_shared_distinctive(search: str, found: str) -> bool:
     # Stem so plurals match (reels == reel, discs == disc).
     s_dist = {_stem(w) for w in s_tok - drop}
     f_dist = {_stem(w) for w in f_tok - drop}
-    if not s_dist or not f_dist:
+    # If the INPUT has no distinctive token of its own, we can't discriminate — a
+    # terse listing is a plausible base, so don't fire.
+    if not s_dist:
         return False
+    # The input HAS distinctive words. If the candidate shares NONE of them it's a
+    # different product — including when the candidate is all brand+generic+
+    # stopword ("Oro Dental Kit" for an "Oro Sterilization Reel": no shared
+    # sterilization/reel). A real terse base would still share the key word.
     return not (s_dist & f_dist)
 
 
