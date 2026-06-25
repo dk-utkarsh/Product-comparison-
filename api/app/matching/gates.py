@@ -100,6 +100,8 @@ def _no_shared_distinctive(search: str, found: str) -> bool:
     token of its own), do NOT fire — a terse competitor listing like 'Maarc
     Articulating Paper' should still match as a plausible base product."""
     sb, fb = extract_brand(search), extract_brand(found)
+    s_tok = distinguishing_tokens(search)
+    f_tok = distinguishing_tokens(found)
     # Strip the shared leading words ONLY when they're just the brand zone (≤2
     # words). If two names share 3+ leading words they share the real product
     # identity ("3M ESPE Ketac Molar" — restorative vs filling are then just
@@ -107,8 +109,15 @@ def _no_shared_distinctive(search: str, found: str) -> bool:
     prefix = _shared_prefix(search, found)
     if len(prefix) > 2:
         prefix = set()
-    s_dist = distinguishing_tokens(search) - {sb} - _GENERIC_NOUNS - prefix
-    f_dist = distinguishing_tokens(found) - {fb} - _GENERIC_NOUNS - prefix
+    # Only DROP a generic noun (pouch/box/kit/tray…) when BOTH names share it —
+    # then it's incidental packaging ("Maarc Eazy Tray" vs "Maarc Tray Adeziv",
+    # both trays). A generic noun that DIFFERS between the two ("Reel" vs "Pouch")
+    # IS the product's identity and must stay as a distinctive token.
+    shared_generic = s_tok & f_tok & _GENERIC_NOUNS
+    drop = {sb, fb} | prefix | shared_generic
+    # Stem so plurals match (reels == reel, discs == disc).
+    s_dist = {_stem(w) for w in s_tok - drop}
+    f_dist = {_stem(w) for w in f_tok - drop}
     if not s_dist or not f_dist:
         return False
     return not (s_dist & f_dist)
