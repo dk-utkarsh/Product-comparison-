@@ -79,16 +79,36 @@ _GENERIC_NOUNS: frozenset[str] = frozenset({
 })
 
 
+def _shared_prefix(search: str, found: str) -> set[str]:
+    """The leading run of identical words — the brand + product-line zone, which
+    by convention sits at the START. Stripping it stops a multi-word brand's tail
+    ('vm' in 'Tor Vm', 'espe' in '3M ESPE', 'sterilization' in 'Oro
+    Sterilization') from masquerading as a shared *distinctive* token and
+    defeating the gate below."""
+    s, f = search.lower().split(), found.lower().split()
+    i = 0
+    while i < len(s) and i < len(f) and s[i] == f[i]:
+        i += 1
+    return set(s[:i])
+
+
 def _no_shared_distinctive(search: str, found: str) -> bool:
     """True when both names carry a distinctive (non-brand, non-generic) token
     but share NONE — strong evidence they're different products of the same
-    brand/category (e.g. 'adeziv'/'thinner' vs 'eazy'). Conservative: if either
-    side is purely generic (no distinctive token of its own), do NOT fire — a
-    terse competitor listing like 'Maarc Articulating Paper' should still match
-    as a plausible base product."""
+    brand/category (e.g. 'adeziv'/'thinner' vs 'eazy', or 'proxicut' vs
+    'polishing'). Conservative: if either side is purely generic (no distinctive
+    token of its own), do NOT fire — a terse competitor listing like 'Maarc
+    Articulating Paper' should still match as a plausible base product."""
     sb, fb = extract_brand(search), extract_brand(found)
-    s_dist = distinguishing_tokens(search) - {sb} - _GENERIC_NOUNS
-    f_dist = distinguishing_tokens(found) - {fb} - _GENERIC_NOUNS
+    # Strip the shared leading words ONLY when they're just the brand zone (≤2
+    # words). If two names share 3+ leading words they share the real product
+    # identity ("3M ESPE Ketac Molar" — restorative vs filling are then just
+    # descriptors and must still match), so we leave the prefix in.
+    prefix = _shared_prefix(search, found)
+    if len(prefix) > 2:
+        prefix = set()
+    s_dist = distinguishing_tokens(search) - {sb} - _GENERIC_NOUNS - prefix
+    f_dist = distinguishing_tokens(found) - {fb} - _GENERIC_NOUNS - prefix
     if not s_dist or not f_dist:
         return False
     return not (s_dist & f_dist)
@@ -251,6 +271,44 @@ def _contrast_mismatch(s_words: set[str], f_words: set[str]) -> str | None:
     return None
 
 
+# ── General numeric / serial signature ─────────────────────────────────────
+# Pull EVERY meaningful number and code from a name, so ANY differing size/serial
+# splits two otherwise-similar products — no bespoke regex per format. This is the
+# general rule for "the numbers/serials must match". Pack/quantity counts are
+# stripped (handled by pack + per-unit price), and a number's trailing unit is
+# dropped so "15g" == "15", "3.5 inch" == "3.5".
+_PACK_CTX_RE = re.compile(
+    r"\b(?:pack|box|set|pair|jar|packet|pouch|kit|strip|card|bundle|lot|case)s?\s*"
+    r"(?:of\s*)?\d+"
+    r"|\b\d+\s*(?:pcs?|nos?|units?|pieces?|tablets?|caps?|capsules?|sheets?|"
+    r"sachets?|strips?|tips?|rolls?|ml|l|cc)\b",
+    re.IGNORECASE,
+)
+# A serial/code = 2+ letters glued to digits (FX51P, EXS6). A number = integer /
+# decimal / fraction / dashed serial, kept WHOLE so a variant suffix stays with
+# it: "1.099-1" ≠ "1.099-2", "1.732" ≠ "1.733". Only the leading digits' trailing
+# unit is dropped (15g == 15).
+_NUM_SIG_RE = re.compile(
+    r"[a-z]{2,}\d[a-z0-9]*|\d+(?:\.\d+)?(?:[-/]\d+)?", re.IGNORECASE
+)
+
+
+def _spec_numbers(name: str) -> set[str]:
+    cleaned = _PACK_CTX_RE.sub(" ", name.lower())
+    return {m.group(0) for m in _NUM_SIG_RE.finditer(cleaned)}
+
+
+def _number_conflict(search: str, found: str) -> str | None:
+    """Both names carry numbers/serials but share NONE → different size/variant.
+    One-sided numbers (a SKU only the competitor lists) never fire — only a true
+    conflict does."""
+    s = _spec_numbers(search)
+    f = _spec_numbers(found)
+    if s and f and not (s & f):
+        return f"{'/'.join(sorted(s)[:3])} vs {'/'.join(sorted(f)[:3])}"
+    return None
+
+
 def gate_check(search: str, found: str) -> GateResult:
     s_attrs = extract_attributes(search)
     f_attrs = extract_attributes(found)
@@ -317,5 +375,12 @@ def gate_check(search: str, found: str) -> GateResult:
 
     if s_attrs.viscosity and f_attrs.viscosity and s_attrs.viscosity != f_attrs.viscosity:
         return GateResult(False, "viscosity mismatch")
+
+    # General catch-all: both names carry numbers/serials that share none → a
+    # different size/variant (3.5 vs 4.5, 016x022 vs 017x025, FX51P vs FX67AS).
+    # Runs last so the specific gates above give better reasons first.
+    _nc = _number_conflict(search, found)
+    if _nc:
+        return GateResult(False, f"number/serial conflict: {_nc}")
 
     return GateResult(True)
