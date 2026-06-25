@@ -35,10 +35,12 @@ def watchlist() -> dict:
 
 
 @router.post("/{run_id}/rerun")
-async def rerun(run_id: int, serp: bool = False) -> dict:
+async def rerun(run_id: int, serp: bool = False, limit: int | None = None) -> dict:
     """Re-run the EXACT same products as a past run (to recompute & compare).
     `serp` replays them through the Google/SerpAPI path so the result can be
-    diffed against the original standard run — quota-capped to 15 products."""
+    diffed against the original standard run. `limit` caps how many products go
+    through Google (default 15 for quota safety; pass a larger number — or 0 — to
+    run more / all)."""
     run = run_store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
@@ -50,7 +52,9 @@ async def rerun(run_id: int, serp: bool = False) -> dict:
     if not products:
         raise HTTPException(status_code=400, detail="run has no products to replay")
     if serp:
-        products = products[:15]   # protect the ~100 searches/month quota
+        # Default cap 15; an explicit limit (0 or >= count = all) overrides it.
+        cap = len(products) if (limit is not None and (limit <= 0 or limit >= len(products))) else (limit or 15)
+        products = products[:cap]
 
     # The comparison base = the nearest STANDARD ancestor, so a Google re-run
     # always diffs as Standard vs Google — even when launched from a run that is
