@@ -1000,6 +1000,10 @@ function fmtDiff(d) {
 }
 function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null) {
   if (!isShownMatch(c)) {
+    // Google-path gate: competitor isn't listed on Google Shopping for this product.
+    if (c && c.note) {
+      return `<td><div class="empty-cell" style="color:var(--ink-mute);font-style:italic;">${enc(c.note)}</div></td>`;
+    }
     const gId = Math.random().toString(36).slice(2);
     const noMatchBtn = !isDk && c ? `
       <div class="fb-row" id="fb-${gId}" data-payload='${enc(JSON.stringify({
@@ -1597,11 +1601,24 @@ window.openRun = openRun;
 
 async function rerunRun(id, serp) {
   const via = serp ? "Google (SerpAPI)" : "standard search";
-  const note = serp ? "\n\nGoogle mode is capped to 15 products and spends ~2 of your ~100 monthly searches each." : "";
-  if (!confirm(`Re-run the same products as run #${id} via ${via}?${note}`)) return;
+  let limitParam = "";
+  if (serp) {
+    const run = RUNS_ALL.find((r) => r.id === id);
+    const total = run ? run.sku_count : 15;
+    const ans = prompt(
+      `How many of run #${id}'s ${total} products to run through Google?\n\n` +
+      `Each spends ~1 of your monthly Google searches (~200 left). ` +
+      `Type a number, or "all" for all ${total}.`,
+      String(Math.min(total, 15)));
+    if (ans === null) return;
+    if (/^all$/i.test(ans.trim())) limitParam = "&limit=0";
+    else { const n = parseInt(ans, 10); if (!n || n < 1) return; limitParam = `&limit=${n}`; }
+  } else if (!confirm(`Re-run the same products as run #${id} via ${via}?`)) {
+    return;
+  }
   const maxIdBefore = Math.max(0, ...RUNS_ALL.map((r) => r.id));
   try {
-    const r = await fetch(`/runs/${id}/rerun${serp ? "?serp=1" : ""}`, { method: "POST" });
+    const r = await fetch(`/runs/${id}/rerun${serp ? "?serp=1" + limitParam : ""}`, { method: "POST" });
     const d = await r.json();
     if (serp) {
       // Auto-open the Standard-vs-Google comparison when the new run finishes —
@@ -1614,7 +1631,7 @@ async function rerunRun(id, serp) {
         await loadRuns();
         const fresh = RUNS_ALL.find((x) => x.id > maxIdBefore && (x.trigger || "").includes("google"));
         if (fresh && fresh.status === "done") { clearInterval(poll); compareRuns(fresh.id); }
-        else if (ticks > 100) clearInterval(poll);
+        else if (ticks > 400) clearInterval(poll);   // ~20 min cap for large runs
       }, 3000);
     } else {
       alert(`Re-run started (${via}) for ${d.products} products. It'll appear at the top.`);

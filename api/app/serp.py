@@ -127,6 +127,34 @@ async def serp_product_candidates(name: str) -> dict[str, list[str]]:
     return out
 
 
+async def serp_shopping_sources(name: str) -> set[str]:
+    """Competitor IDs that list this product on GOOGLE SHOPPING. Google Shopping
+    aggregates merchant listings; `shopping_results[].source` is the merchant
+    ("Oralkart", "Dentmark.com", "Pinkblue"…). Returns the set of OUR competitor
+    ids present. One SerpAPI search. Empty set if disabled / no results."""
+    s = get_settings()
+    if not s.serp_enabled or not s.serpapi_key or not name:
+        return set()
+    query = base_name(name) or name
+    found: set[str] = set()
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
+            r = await client.get(_ENDPOINT, params={
+                "engine": "google_shopping", "q": query,
+                "api_key": s.serpapi_key, "gl": "in", "hl": "en"})
+            if r.status_code != 200:
+                return set()
+            results = r.json().get("shopping_results", []) or []
+    except (httpx.HTTPError, ValueError):
+        return set()
+    for p in results:
+        src = str(p.get("source") or "").lower()
+        for domain, cid in _DOMAINS.items():
+            if domain.split(".")[0] in src:   # "dentmark" in "dentmark.com"
+                found.add(cid)
+    return found
+
+
 async def serp_product_urls(name: str) -> dict[str, str]:
     """{ source : best_pdp_url } — the single top candidate per source (debug /
     back-compat). Prefer serp_product_candidates() for matching."""

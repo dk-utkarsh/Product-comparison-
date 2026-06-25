@@ -30,11 +30,11 @@ from app.scrapers.bridge import COMPETITORS, fetch_product, scrape_competitor
 router = APIRouter(prefix="/serp", tags=["serp"])
 
 
-def _no_match(cid: str, cname: str, seen: int) -> CompetitorMatch:
+def _no_match(cid: str, cname: str, seen: int, note: str | None = None) -> CompetitorMatch:
     return CompetitorMatch(
         competitor_id=cid, competitor_name=cname, candidates_seen=seen,
         matched_name=None, matched_url=None, matched_price=None, matched_image=None,
-        in_stock=None, verdict=None, score=None, cosine=None,
+        in_stock=None, verdict=None, score=None, cosine=None, note=note,
     )
 
 
@@ -154,9 +154,15 @@ async def serp_compare(name: str) -> CompareResult:
     ref = dk_record if dk_record is not None else ProductRecord(name=name)
     dk_price = dk_match.matched_price if dk_match else None
 
-    comps = await asyncio.gather(
-        *(_match_competitor(cid, cname, cands.get(cid) or [], ref, dk_price)
-          for cid, cname in COMPETITORS)
-    )
+    # GATE: only show a competitor if Google Shopping lists them for this product.
+    # If not, show "Not on Google Shopping" instead of any match.
+    shopping = await serp.serp_shopping_sources(name)
+
+    async def _one(cid: str, cname: str) -> CompetitorMatch:
+        if cid not in shopping:
+            return _no_match(cid, cname, 0, note="Not on Google Shopping")
+        return await _match_competitor(cid, cname, cands.get(cid) or [], ref, dk_price)
+
+    comps = await asyncio.gather(*(_one(cid, cname) for cid, cname in COMPETITORS))
     return CompareResult(dentalkart=DkRow(name=name), dentalkart_match=dk_match,
                          competitors=list(comps))

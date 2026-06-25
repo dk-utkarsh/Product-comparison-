@@ -77,6 +77,7 @@ class CompetitorMatch(BaseModel):
     matched_by: str | None = None
     pack_note: str | None = None
     spec_match: str | None = None  # exact | same-tier | different-size
+    note: str | None = None        # e.g. "Not on Google Shopping" (serp path gate)
 
 
 class CompareResult(BaseModel):
