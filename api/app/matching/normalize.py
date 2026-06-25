@@ -96,6 +96,16 @@ def strip_noise_suffix(name: str) -> str:
     return _strip_with(_NOISE_TAIL_PATTERNS, name)
 
 
+# A single letter hyphenated to a word is a MODEL prefix, not two tokens:
+# "i-Scan" → "iScan", "e-Type" → "eType", "X-Ray" → "XRay". Keeping it whole
+# stops the model identity from dissolving into a shared generic word ("i-Scan"
+# and "Free Scan" both collapsing to "…scan"). Requires a word boundary before
+# the single letter and a letter after the hyphen, so multi-letter brands
+# ("Ora-Craft"), suture gauges ("2-0") and model codes ("TR-13") are untouched.
+_MODEL_PREFIX_RE = re.compile(r"\b([a-zA-Z])-([a-zA-Z])")
+
+
 def normalize_for_match(name: str) -> str:
     cleaned = strip_noise_suffix(strip_pack_suffix(strip_sku_tail(fix_mojibake(name))))
+    cleaned = _MODEL_PREFIX_RE.sub(r"\1\2", cleaned)
     return re.sub(r"\s+", " ", cleaned).strip()
