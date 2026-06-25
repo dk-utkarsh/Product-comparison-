@@ -88,6 +88,15 @@ _OZ_RE = re.compile(r"\b(\d{1,2}(?:\.\d)?)\s*oz\b", re.IGNORECASE)
 # (2/4/8/16/32) so ratios ("1:1"), suture "/0" and dates don't match. Normalized
 # "<n>/<d>".
 _FRAC_RE = re.compile(r"\b([1-9]\d?)/(2|4|8|16|32)\b")
+# Standalone decimal SIZE — articulator / instrument inches: "3.5", "4.5" (the
+# trailing " inch-mark is stripped by normalize), "11.5 inch". A hard size
+# discriminator (3.5 ≠ 4.5). Excludes decimals glued to a code (letter/dot
+# before), 2-decimal values ("5.25"), and unit-bearing weight/volume handled
+# elsewhere (oz/ml/g/mg/kg). Normalized "sz<n>".
+_DECIMAL_SIZE_RE = re.compile(
+    r"(?<![a-z0-9.])(\d{1,2}\.\d)(?![\d.])(?!\s*(?:oz|ml|mg|mcg|kg|gm?\b))",
+    re.IGNORECASE,
+)
 _ISO_RE = re.compile(r"(?:#|no\.|size|iso)\s*(\d{2,3})\b", re.IGNORECASE)
 _SHADE_RE = re.compile(r"\b([A-D][1-4](?:\.5)?|BW|UD)\b")
 _CONC_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
@@ -159,6 +168,7 @@ def extract_attributes(name: str) -> Attributes:
     model_codes += [f"{m.group(1)}u" for m in _MICRON_RE.finditer(name)]
     model_codes += [f"{m.group(1)}oz" for m in _OZ_RE.finditer(name)]
     model_codes += [f"{m.group(1)}/{m.group(2)}" for m in _FRAC_RE.finditer(name)]
+    model_codes += [f"sz{m.group(1)}" for m in _DECIMAL_SIZE_RE.finditer(name)]
 
     viscosity: str | None = None
     for v in _VISCOSITY_VARIANTS:

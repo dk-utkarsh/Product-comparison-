@@ -88,6 +88,11 @@ GATE_CASES = [
      "Dental Apex Locator Main Cable For E2ZZ, J-Morita", False, "compatible-with ≠ brand"),
     ("Dentsply Protaper Next Files",
      "Generic Rotary Files Compatible With Dentsply Protaper", False, "compatible-with ≠ brand"),
+    # Standalone decimal size (articulator inches): 3.5 ≠ 4.5.
+    ('Disk Type Mean Value Dental Articulator 3.5',
+     'Indian articulator disk Type Mean Value 4.5"', False, "articulator 3.5 ≠ 4.5"),
+    ('Disk Type Mean Value Dental Articulator 3.5',
+     'Disk Type Mean Value Dental Articulator 3.5 inch', True, "3.5 == 3.5 inch"),
 ]
 
 
