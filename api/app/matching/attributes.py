@@ -124,18 +124,67 @@ _MATERIALS: list[tuple[str, str]] = [
 _BRAND_PREFIX_RE = re.compile(r"^[a-z0-9]+", re.IGNORECASE)
 
 
+# Words that, following a lone leading letter, mean the letter is an ATTRIBUTE
+# (size / grade / shape / film-speed) rather than a brand INITIAL — so the letter
+# must be kept, not folded away. "S Cartridge"/"M Brush" (sizes), "D Speed"/"E
+# Speed" (X-ray film speeds), "L Curve" (shape) are different products, NOT the
+# same brand. A genuine brand initial is followed by a proper brand NOUN ("J
+# Morita", "B Braun"), never by one of these generic/dimension words. Keeping this
+# a blocklist (not the inverse) is deliberate: brands are open-ended, but the set
+# of generic head-nouns/sizes that follow an attribute letter is small and stable.
+_NOT_A_BRAND_WORD: frozenset[str] = frozenset({
+    # generic packaging / form nouns
+    "tray", "trays", "paper", "papers", "kit", "kits", "set", "sets",
+    "box", "boxes", "pack", "packs", "refill", "refills", "bottle", "bottles",
+    "pouch", "pouches", "roll", "rolls", "sheet", "sheets", "pad", "pads",
+    "tube", "tubes", "jar", "jars", "syringe", "syringes",
+    # generic product head-nouns
+    "cartridge", "cartridges", "brush", "brushes", "film", "films", "file",
+    "files", "cable", "cables", "tip", "tips", "burs", "bur", "needle",
+    "needles", "forceps", "scaler", "wire", "wires", "band", "bands",
+    # dimension / grade / shape descriptors
+    "speed", "size", "sizes", "type", "shape", "curve", "small", "medium",
+    "large", "fine", "coarse", "short", "long", "round", "square",
+})
+
+
 def extract_brand(name: str) -> str:
     """Brand = first alphanumeric chunk before any hyphen/space.
 
     "LM-SlimLift"   -> "lm"
     "3M Filtek"     -> "3m"
     "OrthoMetric X" -> "orthometric"
+    "J Morita ZX …" -> "morita"   (a single-letter initial is optional, see below)
     """
     parts = name.strip().split()
     if not parts:
         return ""
-    m = _BRAND_PREFIX_RE.match(parts[0])
-    return m.group(0).lower() if m else parts[0].lower()
+    first = parts[0]
+    # A coined, MULTI-segment hyphenated first token is one brand/line as a whole
+    # ("Kids-e-Crown" → "kidsecrown", NOT "kids"; "e-Max-Press"). Shredding it at
+    # the first hyphen leaves a meaningless fragment that then rejects the real
+    # product. ≥2 internal hyphens marks a coined name; single-hyphen brand-line
+    # tokens ("LM-SlimLift" → "lm", "Ora-Craft" → "ora") keep first-chunk behaviour.
+    if first.count("-") >= 2 and re.search(r"[a-zA-Z]", first):
+        joined = re.sub(r"[^a-z0-9]", "", first.lower())
+        if len(joined) >= 4:
+            return joined
+    m = _BRAND_PREFIX_RE.match(first)
+    brand = m.group(0).lower() if m else first.lower()
+    # A lone single LETTER as the first token is usually a brand INITIAL, not the
+    # brand: "J Morita" (J. Morita Corp), "B Braun". Competitors routinely drop the
+    # initial ("Morita ZX Apex Locator…" for DK's "J Morita ZX Apex Locator…"), so
+    # anchoring the brand to "j" rejects the IDENTICAL product. Fold the initial
+    # into the next word — BUT only when that next word is a real brand noun, not a
+    # size/grade/generic head-noun ("S Cartridge", "D Speed", "M Brush"), where the
+    # letter is the distinguishing attribute and MUST be kept. Digits ("2-0" → "2",
+    # "3M") are never single-letter alphabetic, so they're untouched.
+    if len(brand) == 1 and brand.isalpha() and len(parts) >= 2:
+        m2 = _BRAND_PREFIX_RE.match(parts[1])
+        nxt = (m2.group(0).lower() if m2 else parts[1].lower())
+        if nxt.isalpha() and len(nxt) >= 3 and nxt not in _NOT_A_BRAND_WORD:
+            return nxt
+    return brand
 
 
 def _first_match(pat: re.Pattern[str], text: str) -> str | None:

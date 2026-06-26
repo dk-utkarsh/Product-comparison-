@@ -361,6 +361,13 @@
       background: rgba(36, 131, 185, 0.025);
     }
     table.compare-table tr:last-child td { border-bottom: 0; }
+    /* With the Google path returning up to 10 competitor columns, keep each
+       column readable and let the wrapper (overflow-x:auto) scroll sideways
+       instead of squishing every cell. */
+    table.compare-table th { white-space: nowrap; }
+    table.compare-table td, table.compare-table th { min-width: 150px; }
+    table.compare-table th:first-child, table.compare-table td:first-child { min-width: 40px; }
+    table.compare-table th:nth-child(2), table.compare-table td:nth-child(2) { min-width: 230px; }
     .col-num { width: 36px; color: var(--ink-mute); font-size: 11px; font-family: 'JetBrains Mono', monospace; }
     .product-name {
       font-weight: 500; line-height: 1.4; max-width: 44ch;
@@ -1037,7 +1044,8 @@ function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null
       ${img}
       <div class="cell-body">
         <div class="cell-price">${fmtMoney(c.matched_price)}</div>
-        <div class="cell-name" title="${enc(c.matched_name)}">${enc(c.matched_name)}</div>
+        <div class="cell-name" title="${enc(c.matched_name || c.competitor_name || "")}">${enc(c.matched_name || "(Google Shopping listing)")}</div>
+        ${c.note ? `<div class="cell-meta" style="font-style:italic;color:var(--ink-mute);">${enc(c.note)}</div>` : ""}
         <div class="cell-meta">
           ${verdictBadge(c.verdict)}
           <span class="score-num">${(c.score ?? 0).toFixed(2)}</span>
@@ -1060,21 +1068,43 @@ function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null
 let CURRENT_RESULTS = [];
 let REVIEWS = {};                            // row index → {correct, message}
 let CURRENT_RUN_ID = null;                   // set when reviewing a scheduled run
+// Build the competitor COLUMN list from the data itself — the Google path returns
+// up to 10 dynamic merchants per product, which differ row to row, so columns are
+// the UNION across all rows. Known competitors lead (stable order); new merchants
+// follow in first-seen order. Falls back to the static 4 when nothing is present.
+function competitorColumns(results) {
+  const pref = ["pinkblue", "oralkart", "dentmark"];
+  const names = new Map();
+  for (const r of results) for (const c of (r.competitors || [])) {
+    if (!names.has(c.competitor_id)) names.set(c.competitor_id, c.competitor_name || c.competitor_id);
+  }
+  if (!names.size) return COMPETITORS;       // standard /compare path → fixed 4
+  const cols = [];
+  for (const id of pref) if (names.has(id)) cols.push([id, names.get(id)]);
+  for (const r of results) for (const c of (r.competitors || [])) {
+    const id = c.competitor_id;
+    if (pref.includes(id)) continue;
+    if (!cols.some(([cid]) => cid === id)) cols.push([id, names.get(id)]);
+  }
+  return cols;
+}
+
 function compareTableHTML(results) {
   CURRENT_RESULTS = results;                 // so toggleInsight(i) can look up a row
   REVIEWS = {};                              // fresh review state per render
-  const span = 3 + COMPETITORS.length;       // # + name + DK + competitors
+  const cols = competitorColumns(results);   // dynamic top-N competitor columns
+  const span = 3 + cols.length;              // # + name + DK + competitors
   const head = `
     <th>#</th>
     <th>Product name</th>
     <th>Dentalkart.com</th>
-    ${COMPETITORS.map(([id, name]) => `<th>${name}</th>`).join("")}
+    ${cols.map(([id, name]) => `<th>${enc(name)}</th>`).join("")}
   `;
   const rows = results.map((r, i) => {
     const searchTerm = r.dentalkart.name;
     const dkPrice = r.dentalkart_match?.matched_price ?? null;
     const dkUrl = r.dentalkart_match?.matched_url ?? null;
-    const compCells = COMPETITORS.map(([id]) => {
+    const compCells = cols.map(([id]) => {
       const c = r.competitors.find((x) => x.competitor_id === id);
       return cellHtml(c, false, searchTerm, dkPrice, dkUrl);
     }).join("");

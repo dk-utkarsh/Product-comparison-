@@ -143,6 +143,101 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-26 — Top-10 Google competitors + Shopping-gate fail-open + brand/variant precision
+
+Two themes: a big new feature (dynamic top-N competitors on the Google path) and a
+batch of brand/variant precision fixes triggered by real examples. Reviewer to run
+the regression suite.
+
+**Google Shopping gate — fail OPEN (bug fix).** `serp_shopping_sources` returned an
+empty set on ANY failure (quota/429/error/empty payload); the route read that as
+"every competitor absent" and stamped whole runs "Not on Google Shopping". It now
+returns three-state `set | None` — None = lookup failed → the route FAILS OPEN
+(matches normally) instead of hiding everyone. Root cause of the "everything says
+Not on Google Shopping" reports was this + a uvicorn started without `--reload`
+(stale code); restarted with reload.
+
+**Top-10 competitors (new feature, Google path only).** Beyond the fixed 4, surface
+the top merchants Google Shopping lists, each verified through the SAME matcher.
+- `serp.serp_top_competitors(name, limit=10)`: 1 shopping search (ranked merchant
+  list) + 1 organic search (free PDP urls for ANY domain) + 1 immersive search per
+  NEW merchant lacking a free url (to get its direct PDP). The 3 baseline
+  competitors are always shown. Cost ≈ 8 searches/product for a fresh item ("verify
+  all, no cap" per product owner).
+- `lib/scrapers/generic.ts` + sidecar `productFetchers.generic` (and unknown
+  `?scraper=` falls back to it): a generic PDP reader (JSON-LD/OG via `parsePdpHtml`)
+  for merchants with no dedicated scraper. Same pack/unit normalization.
+- `routes/serp._match_competitor` unified for known + new merchants: known get
+  own-site search + dedicated fetch; new get organic/immersive urls + generic fetch.
+  Everything after the fetch (select_variant → structured_match → triage) is identical.
+- UI (`index.html`): competitor COLUMNS are now built dynamically from the data
+  (union across rows), horizontally scrollable, with min-widths so 10 columns don't
+  squish. Standard `/compare` path still renders the fixed 4.
+
+**Strict verification policy (precision).** A price is shown ONLY when we read the
+seller's OWN page and it passed every check. Layered outcomes:
+- read + all checks pass → verified price.
+- read + matcher rejects → "Different product on this site" (no price).
+- page unreadable → "Listed on Google — couldn't verify page" (NO price — we never
+  show a Google card price we couldn't verify on the page).
+- card title clearly different / price 8×+ off DK → "Different product …" (no price).
+Also added a price-band guard on loose ("possible") verified matches: an 8×+ gap
+from DK = different variant (the ₹41k "Root ZX Mini" unit dropped for a ₹5k accessory).
+
+**Brand & variant precision (broad, principled).**
+- `attributes.extract_brand`: (a) a lone single-LETTER first token is a brand
+  INITIAL, optional — "J Morita" → brand "morita" (so a competitor's "Morita ZX…"
+  matches), guarded so size/grade letters ("S Cartridge", "D Speed") keep the
+  letter; (b) a coined MULTI-hyphen first token is kept whole — "Kids-e-Crown" →
+  "kidsecrown", not the fragment "kids" (single-hyphen "LM-SlimLift"→"lm" unchanged).
+- `gates._BRAND_ALIASES`: manufacturer⇄line knowledge — `kidsecrown ⇄ shinhung`
+  (Kids-e-Crown is Shinhung's line) so a "Shinhung …" listing still matches.
+- `structured._brand_conflict`: now alias-aware (consistent with the gate) so the
+  deep check doesn't reject a same-brand product the gate accepted.
+- `gates._CONTRAST_GROUPS`: added TOOTH POSITION (central/lateral/canine/premolar/
+  molar). Fixes Kids-e-Crown "Canine" wrongly matching Medidentalpro's "Central".
+
+`api/pyproject.toml` got a `[tool.vercel] entrypoint` line while exploring a Vercel
+deploy — note: this app is NOT serverless-deployable (persistent :3100 sidecar +
+SQLite + torch); the right host is a container with a disk. Entry left in harmlessly.
+
+### 2026-06-25 (pm) — Run #38 accuracy fixes + Google Shopping gate
+
+Worked the 17 issues logged in run #38's accuracy review. Broad fixes (each as its
+own commit; reviewer to run the regression suite):
+- **Serial/number precision** (`gates.py` `_number_conflict` + `_NUM_SIG_RE`): a
+  general numeric/serial signature — any differing number/serial/decimal/fraction
+  splits two near-identical names, kept WHOLE with its suffix (1.099-1 ≠ 1.099-2,
+  1.861 ≠ 1.862). Replaces per-format regexes; also added `_DECIMAL_SIZE_RE`
+  (articulator 3.5 ≠ 4.5).
+- **Multi-word-brand distinctive gate**: strip the shared leading brand prefix
+  (≤2 words) so "Tor Vm"'s tail "vm" stops masking as a shared distinctive token
+  (Tor Vm Proxicut ≠ Polishing Discs).
+- **Generic noun = actual product identity when it DIFFERS**: only drop a generic
+  noun (pouch/box/kit) when BOTH names share it; keep it when they differ (Reel ≠
+  Pouch). Plus stem plurals (reels == reel).
+- **All-generic candidate rejected**: a candidate sharing NONE of the input's
+  distinctive words is different even if its own name is all brand+generic+
+  stopword ("Oro Dental Kit" ≠ "Oro Sterilization Reel").
+- **Single-letter model prefix kept whole** (`normalize.py`): "i-Scan" → "iScan"
+  so the model identity doesn't dissolve into a shared "scan" (i-Scan ≠ Free
+  Scan; oralkart now matches the real i-Scan). Ora-Craft / 2-0 / TR-13 untouched.
+- **Google Shopping gate** (`serp.py` `serp_shopping_sources` + `routes/serp.py`):
+  management decision — only show a competitor if it's listed on Google Shopping.
+  Competitors absent show "Not on Google Shopping" (CompetitorMatch.note, rendered
+  in cell + ⇄ compare view). Costs +1 SerpAPI search/product.
+  KNOWN LIMITATION: the gate reads the single headline `source`; multi-seller
+  cards (`multiple_sources=True`, "& more") hide other sellers, so it both
+  under-counts and varies vs the live page. The FULL seller list is available via
+  the immersive product API (`product_results.stores`) — needs wiring for accuracy.
+- **Configurable Google re-run limit** (`routes/runs.py`): `?serp=1&limit=N`
+  (0/≥count = all) so a Google re-run can cover more than 15 products; UI prompts
+  for the count. Plus `SERP_SITE_FALLBACK` was briefly off then reverted on.
+- SerpAPI key rotated again (fresh 250/month, api/.env).
+
+NEXT: wire the accurate Google-Shopping seller-list gate (`product_results.stores`)
+so the "Google-Shopping-only" rule counts ALL sellers, not just the headline.
+
 ### 2026-06-25 — Brand "compatible-with" guard, Google-rerun pairing, scheduler off
 
 - **Brand compatibility-reference guard** (`gates.py`): a brand mentioned only as

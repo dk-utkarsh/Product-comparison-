@@ -34,6 +34,7 @@ import { searchSurgicalmart } from "../../lib/scrapers/surgicalmart";
 import { searchSmileStream } from "../../lib/scrapers/smilestream";
 import { searchDentaid } from "../../lib/scrapers/dentaid";
 import { searchDentalkart, fetchDentalkartProduct } from "../../lib/scrapers/dentalkart";
+import { fetchGenericProduct } from "../../lib/scrapers/generic";
 import type { ProductData } from "../../lib/types";
 
 const scrapers: Record<string, (q: string) => Promise<ProductData[]>> = {
@@ -54,6 +55,10 @@ const productFetchers: Record<string, (url: string) => Promise<ProductData | nul
   oralkart: fetchOralkartProduct,
   dentmark: fetchDentmarkProduct,
   dentalkart: fetchDentalkartProduct,
+  // Fallback for arbitrary top-10 merchants with no dedicated scraper. Any
+  // unknown `?scraper=` also routes here (see below), so new Google-Shopping
+  // sources are fetchable without adding a per-site scraper.
+  generic: fetchGenericProduct,
 };
 
 const PORT = Number(process.env.SCRAPE_SERVER_PORT || 3100);
@@ -72,12 +77,9 @@ const server = createServer(async (req, res) => {
     if (path === "product") {
       const scraper = url.searchParams.get("scraper")?.trim() || "";
       const target = url.searchParams.get("url")?.trim() || "";
-      const fetcher = productFetchers[scraper];
-      if (!fetcher) {
-        res.writeHead(404, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: `no product fetcher for: ${scraper}` }));
-        return;
-      }
+      // Unknown scraper id → generic PDP fetcher (top-10 merchants with no
+      // dedicated scraper). Known ids keep their site-specific fetcher.
+      const fetcher = productFetchers[scraper] || productFetchers.generic;
       if (!target) {
         res.writeHead(400, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: "missing query param ?url=" }));

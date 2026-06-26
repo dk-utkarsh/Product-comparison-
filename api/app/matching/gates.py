@@ -159,6 +159,10 @@ def _word_boundary(text: str, word: str) -> bool:
 # house line of "Dental Avenue"; pinkblue lists it as "Dental Avenue Avuecal").
 _BRAND_ALIASES: dict[str, tuple[str, ...]] = {
     "avue": ("dental avenue",),
+    # Manufacturer ⇄ product-line equivalences that no rule can infer (knowledge,
+    # like a search engine's knowledge graph). Kids-e-Crown is Shinhung's line, so
+    # a competitor listing the same item under the maker "Shinhung" still matches.
+    "kidsecrown": ("shinhung",),
 }
 
 
@@ -270,6 +274,11 @@ _CONTRAST_GROUPS: tuple[frozenset[str], ...] = (
     # a different product from a luting cement that cements crowns (Ketac Cem),
     # even though both are "glass ionomer cement". (synonyms not mixed in.)
     frozenset({"restorative", "luting"}),
+    # TOOTH POSITION — pediatric crowns / refills come per tooth: a "Canine" refill
+    # is a different product from a "Central" or "Molar" one (Kids-e-Crown). Only
+    # distinct positions listed (no synonyms like cuspid/incisor, to avoid
+    # same-tooth false rejects); fires only when both names name a DIFFERENT tooth.
+    frozenset({"central", "lateral", "canine", "premolar", "molar"}),
 )
 
 

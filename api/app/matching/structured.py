@@ -13,7 +13,7 @@ from enum import StrEnum
 
 from app.matching.attributes import Attributes, extract_attributes_rich
 from app.matching.embed import get_embedder
-from app.matching.gates import gate_check
+from app.matching.gates import _BRAND_ALIASES, gate_check
 from app.matching.normalize import normalize_for_match
 from app.matching.tokens import fuzz_ratio, weighted_overlap
 from app.matching.variant_spec import SpecMatch, VariantSpec
@@ -106,13 +106,25 @@ def _main_model_codes(name: str) -> set[str]:
     return {m.group(0) for m in _STRONG_CODE_RE.finditer(main)}
 
 
+def _brands_aliased(a: str, b: str) -> bool:
+    """True when two brand tokens are known equivalents (manufacturer ⇄ line),
+    e.g. 'kidsecrown' ⇄ 'shinhung'. Mirrors the gate's _BRAND_ALIASES so this
+    deeper check doesn't reject a same-brand product the gate already accepted."""
+    for x, y in ((a, b), (b, a)):
+        for alias in _BRAND_ALIASES.get(x, ()):
+            if y == alias or y in alias.split() or y == alias.replace(" ", ""):
+                return True
+    return False
+
+
 def _brand_conflict(s_attrs: Attributes, c_attrs: Attributes,
                     s_name: str, c_name: str) -> bool:
     """First-token brands differ AND neither brand appears anywhere in the
     other side's name. The containment check saves 'GC Fuji IX' vs
-    'Fuji IX GP by GC' from a false reject."""
+    'Fuji IX GP by GC' from a false reject; the alias check saves a manufacturer/
+    line pair like 'Kids-e-Crown' vs 'Shinhung …'."""
     sb, cb = s_attrs.brand, c_attrs.brand
-    if not sb or not cb or sb == cb:
+    if not sb or not cb or sb == cb or _brands_aliased(sb, cb):
         return False
     return sb not in c_name.lower() and cb not in s_name.lower()
 
