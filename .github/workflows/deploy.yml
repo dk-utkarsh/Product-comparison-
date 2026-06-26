@@ -1,0 +1,38 @@
+name: Deploy to droplet
+
+# Push to main → SSH into the droplet, fast-forward the checkout, rebuild deps,
+# run migrations, restart the systemd services, and health-check. Manual runs
+# via the "Run workflow" button are also supported.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never let two deploys run at once; queue them instead.
+concurrency:
+  group: deploy-droplet
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: SSH deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          command_timeout: 25m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            REPO=/home/ubuntu/scripts/Product-comparison-
+            cd "$REPO"
+            echo "--- syncing checkout to origin/main ---"
+            git fetch --prune origin
+            git reset --hard origin/main
+            git log -1 --oneline
+            echo "--- running deploy script ---"
+            bash "$REPO/scripts/deploy.sh"
