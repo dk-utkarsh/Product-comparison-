@@ -536,8 +536,8 @@
             <input type="checkbox" id="serpToggle" style="opacity:0;width:0;height:0;position:absolute;" />
             <span id="serpKnob" style="position:absolute;inset:0;background:var(--line,#d2d2d7);border-radius:22px;transition:.18s;"></span>
           </span>
-          <span><strong>🔍 Use Google (SerpAPI)</strong> — find each competitor's exact page via Google instead of our own search.
-            <span style="color:var(--ink-mute);">Applies to this single search only; the batch upload below always uses the standard search (Google quota is limited).</span>
+          <span><strong>🔍 Use Google (SerpAPI)</strong> — find the top competitors via Google Shopping (up to 10), then verify each on its own page.
+            <span style="color:var(--ink-mute);">Applies to this single search AND the batch upload below (batch is capped to the first 15 products — Google quota is limited).</span>
           </span>
         </label>
         <div class="quick-row">
@@ -837,7 +837,7 @@ input.addEventListener("change", () => {
 
 async function runBatch(file) {
   const serp = $("serpToggle").checked;
-  if (serp && !confirm("Run this sheet through Google (SerpAPI)?\n\nGoogle mode is capped to the first 15 products and spends ~2 of your monthly searches each (~30 total). The rest of the sheet is ignored in Google mode.")) {
+  if (serp && !confirm("Run this sheet through Google (SerpAPI)?\n\nGoogle mode finds the top ~10 competitors per product and verifies each on its page. It is capped to the first 15 products and spends up to ~8 of your monthly searches each (up to ~120 total). The rest of the sheet is ignored in Google mode.")) {
     setIdle();
     return;
   }

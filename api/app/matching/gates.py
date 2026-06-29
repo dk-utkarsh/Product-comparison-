@@ -182,9 +182,24 @@ def _brand_compat_only(found: str, brand: str) -> bool:
     brand mentioned only after 'For/Fits/Compatible' names what the item FITS."""
     bwords = brand.split()
     words = re.sub(r"[^a-z0-9 ]", " ", found.lower()).split()
-    first = next(
-        (i for i in range(len(words)) if words[i:i + len(bwords)] == bwords), None
-    )
+
+    def _locate() -> int | None:
+        # Exact word-run match first.
+        for i in range(len(words)):
+            if words[i:i + len(bwords)] == bwords:
+                return i
+        # Single-word brand fused onto a 1–2 letter INITIAL ("J-Morita" → "jmorita"
+        # after normalization): match the token whose tail IS the brand. Without
+        # this, a third-party "… Cable For E2ZZ, J-Morita" hides the brand and the
+        # fitment guard misses it.
+        if len(bwords) == 1:
+            b = bwords[0]
+            for i, w in enumerate(words):
+                if w != b and w.endswith(b) and 1 <= len(w) - len(b) <= 2 and w[:-len(b)].isalpha():
+                    return i
+        return None
+
+    first = _locate()
     if first is None or first <= 2:   # brand at/near the start = the real brand
         return False
     return any(w in _COMPAT_MARKERS for w in words[:first])

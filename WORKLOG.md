@@ -143,6 +143,30 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-29 — Compatibility-part guard (fusion-robust) + bulk Google top-10 UX
+
+Continuing the pending list from 06-26.
+
+- **Compatibility-part fix** (`gates._brand_compat_only`): a third-party part like
+  "Dental Apex Locator Main Cable **For** E2ZZ, J-Morita" was matching the genuine
+  "J Morita … Accessories". The fitment guard already existed but `normalize_for_match`
+  fuses "J-Morita" → "JMorita", so it looked for the word "morita" and missed it.
+  `_locate()` now also matches a brand fused onto a 1–2 letter INITIAL (jmorita ⊇
+  morita), so the guard fires. Verified: cable→REJECT; real "Morita ZX … Accessories"
+  →PASS; brand-at-start "… Cable for Root ZX"→PASS; "GC Fuji by GC"→PASS. Live: the
+  Dentmark cable now drops; only genuine accessories (PinkBlue ₹4767, Oralkart ₹4800)
+  show prices for the J-Morita test.
+- **Bulk Google top-10 (UX only — backend already worked):** `/compare/batch-stream
+  ?serp=1` already routes each product through `serp_compare` (now top-10), capped at
+  `_SERP_BATCH_CAP=15`, and `runBatch` already honours the Google toggle. Fixed the
+  stale UI: the toggle no longer claims "batch always uses standard search" (it
+  applies to both), and the confirm dialog now states the real cost (~8 searches/
+  product, up to ~120 for the 15-cap) instead of the old ~2/~30.
+
+Still pending: reviewer regression run; automated accuracy harness for volume;
+confirmed-link cache + cross-competitor variant alignment. (Dropped: the
+product_results.stores seller-list gate — superseded by the top-10 work.)
+
 ### 2026-06-26 — Top-10 Google competitors + Shopping-gate fail-open + brand/variant precision
 
 Two themes: a big new feature (dynamic top-N competitors on the Google path) and a
