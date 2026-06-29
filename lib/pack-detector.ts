@@ -42,9 +42,10 @@ export function detectPackSize(name: string, description?: string, url?: string)
     /(\d+)\s*(?:pcs|pieces?|pc)\b/i,
     // "5 units", "11 units"
     /(\d+)\s*units?\b/i,
-    // "x5", "x 10", "x11" — but NOT "1 x 15 g" / "x 13.1 g" / "x 10 ml"
-    // (a size/measurement or a decimal, not a pack count)
-    /\bx\s*(\d+)(?!\.?\d)(?!\s*(?:g|gm|gms|gram|grams|ml|mg|kg|cm|mm|oz|l)\b)/i,
+    // "x5", "x 10", "x11" — but NOT "1 x 15 g" / "x 13.1 g" / "x 10 ml" / a
+    // DIMENSION like "150 MM x 200 M" (200 metres, not pack-of-200). Excludes a
+    // following measurement unit (incl. m / mtr / meter — the reel-length unit).
+    /\bx\s*(\d+)(?!\.?\d)(?!\s*(?:g|gm|gms|gram|grams|ml|mg|kg|cm|mm|m|mtr|mtrs|mts|meter|metre|meters|metres|oz|l)\b)/i,
     // "qty: 5", "quantity: 10"
     /(?:qty|quantity)\s*[:\-]?\s*(\d+)/i,
     // "5 nos", "11 nos"
