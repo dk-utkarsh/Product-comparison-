@@ -1,0 +1,138 @@
+# Matching & Extraction Edge Cases (living reference)
+
+Every case here is a real product that broke the tool and the fix we shipped. Keep
+this current — when a new edge case is found and fixed, add it. When changing the
+matcher/extractor, re-check these so we don't regress. Python matcher cases should
+also live as rows in `api/tests/matching/test_regression_cases.py` (reviewer runs
+the suite); extraction cases are harder to unit-test (live HTML) so they live here.
+
+---
+
+## A. Brand identity (api/app/matching/attributes.py, gates.py)
+
+1. **Single-letter brand INITIAL is optional** — "J Morita" ≡ "Morita", "B Braun" ≡
+   "Braun". A competitor that drops the initial must still match. GUARDED: a size/
+   grade letter ("S Cartridge", "D Speed", "M Brush") is kept, not folded — the
+   letter is the distinguishing attribute there.
+2. **Coined multi-hyphen brand kept whole** — "Kids-e-Crown" → brand "kidsecrown",
+   NOT the fragment "kids". Single-hyphen brand-lines ("LM-SlimLift" → "lm",
+   "Ora-Craft" → "ora") keep first-chunk behaviour.
+3. **Manufacturer ⇄ product-line aliases** (`_BRAND_ALIASES`) — knowledge a rule
+   can't infer: "Kids-e-Crown" ⇄ "Shinhung". Add entries as discovered.
+4. **Brand-compatibility guard** — "Apex Locator Cable **For** … J-Morita" is a
+   third-party PART that FITS J-Morita, not a J-Morita product → reject. Robust to
+   normalization fusing "J-Morita" → "jmorita" (the brand is matched even fused).
+5. **Brand check is alias-aware in BOTH layers** — gate (`_brand_match`) and the
+   deeper `structured._brand_conflict` both honour aliases, or one rejects what the
+   other accepts.
+
+## B. Model / variant identity
+
+6. **Single-letter model designator** — "UDS **E**" ≠ "UDS **P**", "Type A" ≠
+   "Type B", "D Speed" ≠ "E Speed". A standalone UPPERCASE letter is a model code
+   (`ml_e`/`ml_p`). Articles A/I and dimension X excluded.
+7. **Short alphanumeric codes** — "V2" ≠ "V3" (and ≠ a single model letter). Fell
+   between `_MODEL_RE` (needs ≥2 digits) and `_SKU_RE` (needs ≥3 letters);
+   `_ALNUM_CODE_RE` (letter-led `[a-z]{1,2}\d{1,2}`) catches them. Units ("5g",
+   "10ml") are digit-led so never match. Bonus: shade A2 ≠ A3.
+8. **Numeric/serial codes** — EXS6 ≠ EXA6, 1.099-1 ≠ 1.099-2, articulator 3.5 ≠ 4.5.
+9. **Tooth position** (contrast group) — central / lateral / canine / premolar /
+   molar are different products (Kids-e-Crown reels-by-tooth).
+10. **Other contrast axes** — upper/lower, left/right, intraoral/extraoral,
+    pediatric/adult, restorative/luting, straight/curved, etc.
+11. **Sub-variant selection** (`pipeline.select_variant`) — a configurable listing
+    must resolve to the child matching the DK product (the 150MM reel, the
+    016×022 Upper archwire), not the base/default. Works for dedicated scrapers
+    AND (now) generic merchants via WooCommerce variation extraction (see G).
+
+## C. Size / quantity tokenization (api/app/matching/tokens.py)
+
+12. **Number + unit is JOINED** — "150 MM" → "150mm" so the spaced and glued forms
+    match (DK "150MM" ≡ variant "150 MM x 200 M"), AND the unit stays bound:
+    **"200mm" (width) ≠ "200m" (length)** — a bare "200" was matching the wrong
+    reel. Model codes (letter-first: EXS6, V2) stay whole.
+13. **Freebie is NOT pack** (`lib/pack-detector.ts`) — "8 Tips **Free**", "free 8
+    tips", "with 8 free tips" = one product + bonus items, not pack-of-8. Real
+    packs ("Pack of 100", "x10") still count.
+14. **Dimension "x" is NOT pack** — "150 MM **x 200 M**" is 200 metres, not
+    pack-of-200. The x-pack pattern excludes a following unit incl. **m / mtr /
+    meter** (the reel-length unit), not just mm/ml/g.
+
+## D. Match scoring (api/app/matching/structured.py)
+
+15. **Near-identical name is NOT hard-rejected on a price gap** — a high fuzz/token
+    name match whose unit price is far off is a pack/FORM/bundle difference, shown +
+    ⚠-flagged, not rejected. WEAK-name lookalikes (low fuzz AND token) still rejected.
+16. **Description IS used** — `extract_attributes_rich` pulls specs/size/material
+    from the description, and the cosine is computed on `name + description[:240]`
+    (augmented). So matching considers name + description + brand + specs + variant +
+    pack + price band — not just the raw name string.
+17. **Price band** — an 8×+ per-unit gap (uncorroborated, weak name) = different
+    product. Confirmed/exact names exempt.
+
+## E. Foreign / currency
+
+18. **Non-INR pages dropped** — all competitors are Indian (gl=in). `parsePdpHtml`
+    captures `priceCurrency`, and when absent infers from page symbols (₹/Rs/INR →
+    keep; €/£/EUR/GBP/AED/CAD → foreign → drop). Kills IPG Dental's EUR "Localizador
+    Root ZX Mini". Foreign also leaks via URL params (`country=AE&currency=USD`).
+
+## F. JSON-LD / HTML extraction (lib/pdp.ts)
+
+19. **`@type` full-URL form** — accept "Product", "http(s)://schema.org/Product",
+    "IndividualProduct", not just "Product" (hospitalstore.com).
+20. **Malformed JSON-LD salvage** — strip JS `//` and `/* */` comments, trailing
+    commas, AND **raw control characters** (literal tab/newline inside a string —
+    dentganga). thedentistshop ships a `//` comment in its Product block.
+21. **Price fallbacks** — JSON-LD offers → `product:price:amount` / `og:price:amount`
+    / `itemprop=price` (content or text). Name fallbacks: og:title → <title> → <h1>.
+22. **NO body-text price scraping** — deliberately removed; on real pages it grabs
+    the struck-through MRP or concatenates digits (dentalstores → "2500024"). A
+    wrong price is worse than none.
+
+## G. Generic merchant fetch (lib/scrapers/generic.ts, sidecar)
+
+23. **Generic reader** for merchants with no dedicated scraper — JSON-LD/OG/microdata
+    via `parsePdpHtml`, same pack/unit normalization.
+24. **WooCommerce variable products** — extract `data-product_variations` (every
+    size + price) into `variants[]` so `select_variant` picks the DK size
+    (ayushidensity reel: 55/75/100/150/200/300 MM).
+25. **ScraperAPI fallback** — a cheap proxy fetch (no JS render) when the direct
+    fetch fails (datacenter-IP block, e.g. hospitalstore 403). Render is NOT used
+    (~25 credits each and SPA pages usually have no structured price anyway).
+
+## H. Discovery / DK anchor (api/app/serp.py, routes/serp.py)
+
+26. **DK is the head** — DK resolves via its OWN site search, not Google. The
+    comparison is DK's product vs the same product at competitors.
+27. **Brand drift on BRAND-LESS queries** — "sterilization reels 150mm" resolves DK
+    to whatever its top exact-size match is (Waldent one day, Oro another, as DK's
+    live catalog/search changes), while Google Shopping is dominated by another
+    brand (Oro) → all rejected as different-brand. Search WITH the brand for a
+    specific product. (Open: optionally anchor competitor discovery to DK's product.)
+28. **Google Shopping returns wrong sizes/brands** — for "…150mm" it routinely hands
+    back 100mm/55mm/300mm/other-brand listings; rejecting those is correct.
+29. **Shopping gate fails OPEN** — a failed/quota'd lookup returns None and we match
+    normally, never stamping a whole run "Not on Google Shopping".
+30. **Top-N order** — competitor columns are ordered matched-first, then others.
+
+## I. Known-hard (no reliable fix without the AI extractor — currently parked)
+
+- **Pure SPA, no structured price** (dentalstores.in — React, price is plain-text
+  MRP) → "couldn't verify" (no wrong price shown).
+- **No price in JSON-LD** (dentganga — name parses after control-char salvage, but
+  offers carry no price) → "couldn't verify".
+- **Heavy anti-bot, non-standard** (amazon.in) → can't parse.
+  These need the LLM extractor + judge (needs an Anthropic API key).
+
+## J. Operational
+
+- **SerpAPI** 250 searches/month; a Google compare spends ~3–8. **ScraperAPI**
+  credits — proxy ~1/page, render ~25/page (render disabled).
+- **Confirmed memory** — ✓ keep / ✗ hide writes to SQLite `confirmed_matches`;
+  reused (re-priced) next run. Keyed on the normalized DK/query name.
+- **Auto-flag ⚠** — surfaces borderline matches (possible verdict, different size,
+  low similarity, price ≥2× off) for a human; never silently shown as confident.
+- **Prod parity** — `.env` is gitignored, so the droplet needs its own
+  `SERPAPI_KEY`, `SERP_ENABLED=1`, `SCRAPER_API_KEY`, and **`PROXY_PINKBLUE=1`**
+  (datacenter IP blocks pinkblue without the proxy).

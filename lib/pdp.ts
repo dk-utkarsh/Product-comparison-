@@ -74,7 +74,9 @@ export function parsePdpHtml(html: string): PdpData | null {
         const fixed = raw
           .replace(/\/\*[\s\S]*?\*\//g, "")     // /* block */ comments
           .replace(/^\s*\/\/.*$/gm, "")         // whole-line // comments
-          .replace(/,(\s*[}\]])/g, "$1");       // trailing commas
+          .replace(/,(\s*[}\]])/g, "$1")        // trailing commas
+          // eslint-disable-next-line no-control-regex
+          .replace(/[\u0000-\u001f]/g, " ");
         product = findProductNode(JSON.parse(fixed));
       } catch {
         /* still malformed — keep scanning other blocks */
