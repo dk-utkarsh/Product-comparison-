@@ -78,6 +78,8 @@ class CompetitorMatch(BaseModel):
     pack_note: str | None = None
     spec_match: str | None = None  # exact | same-tier | different-size
     note: str | None = None        # e.g. "Not on Google Shopping" (serp path gate)
+    needs_review: bool = False     # auto-flagged for a human look
+    review_flags: list[str] = []   # why it was flagged
 
 
 class CompareResult(BaseModel):

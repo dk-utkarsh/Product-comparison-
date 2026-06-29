@@ -12,7 +12,7 @@ import asyncio
 
 from fastapi import APIRouter
 
-from app import pipeline, serp
+from app import pipeline, run_store, serp
 from app.matching.normalize import normalize_for_match
 from app.matching.query_builder import ProductContext, extract_smart_queries
 from app.matching.structured import ProductRecord, StructuredVerdict, structured_match
@@ -29,6 +29,60 @@ from app.scrapers.bridge import COMPETITORS, fetch_product, scrape_competitor
 from app.settings import get_settings
 
 router = APIRouter(prefix="/serp", tags=["serp"])
+
+
+def _confirm_key(name: str) -> str:
+    return normalize_for_match(name).lower().strip()
+
+
+def _flag_review(cm: CompetitorMatch, dk_price: float | None) -> CompetitorMatch:
+    """Auto-flag a shown match that a human should spot-check. Human-confirmed
+    matches are never flagged. Signals: not an exact-name match, a non-exact
+    pack/size, low name similarity, or a price 2x+ off DK (below the 8x hard cut
+    that already drops it)."""
+    if cm.matched_price is None or cm.matched_by == "confirmed":
+        return cm
+    flags: list[str] = []
+    if cm.verdict == "possible":
+        flags.append("not an exact name match")
+    if cm.spec_match == "different-size":   # only a real size mismatch (not same-tier/unknown)
+        flags.append("different pack/size")
+    if cm.cosine is not None and cm.cosine < 0.6:
+        flags.append(f"low similarity {cm.cosine:.2f}")
+    if dk_price and cm.matched_price:
+        hi, lo = max(dk_price, cm.matched_price), min(dk_price, cm.matched_price)
+        if lo > 0 and hi / lo >= 2:
+            flags.append(f"price {hi / lo:.1f}x off DK")
+    cm.needs_review = bool(flags)
+    cm.review_flags = flags
+    return cm
+
+
+async def _confirmed_match(cid: str, cname: str, conf: dict, ref: ProductRecord,
+                           dk_price: float | None, known: bool) -> CompetitorMatch | None:
+    """Reuse a human-confirmed link instead of re-discovering. We re-scrape the
+    stored URL for a FRESH price (never a stale one). If the page is gone or now
+    resolves to a different product (link repurposed), return None so the caller
+    falls back to live discovery. The confirmation supplies identity; the page
+    supplies today's price."""
+    url = conf.get("matched_url")
+    if not url:
+        return None
+    pdp = await fetch_product(cid if known else "generic", url)
+    if pdp is None:
+        return None                                   # dead link → fall back to live
+    pipeline.select_variant(pdp, ref.variant_spec, dk_price, ref.name)
+    rec = pipeline.record_from(pdp)
+    if structured_match(ref, rec).verdict is StructuredVerdict.REJECTED:
+        return None                                   # link now a different product
+    diff = round(dk_price - rec.price, 2) if dk_price and rec.price else None
+    return CompetitorMatch(
+        competitor_id=cid, competitor_name=cname, candidates_seen=1,
+        matched_name=rec.name, matched_url=pdp.url, matched_price=rec.price,
+        matched_image=pdp.image, in_stock=pdp.in_stock, verdict="confirmed",
+        score=1.0, cosine=None, price_diff_vs_dk=diff, matched_by="confirmed",
+        note="Confirmed by you ✓",
+    )
 
 
 def _no_match(cid: str, cname: str, seen: int, note: str | None = None) -> CompetitorMatch:
@@ -205,6 +259,9 @@ async def serp_compare(name: str) -> CompareResult:
     ref = dk_record if dk_record is not None else ProductRecord(name=name)
     dk_price = dk_match.matched_price if dk_match else None
 
+    # CONFIRMED MEMORY: human-confirmed links for this product (re-scraped fresh).
+    confirmed = run_store.get_confirmed(_confirm_key(name))
+
     # TOP-N competitors: the merchants Google Shopping lists for this product
     # (ranked), with the 4 known always present. Each is verified through the SAME
     # matcher (_match_competitor). None = Shopping lookup FAILED → fail open to the
@@ -220,6 +277,15 @@ async def serp_compare(name: str) -> CompareResult:
                              competitors=list(comps))
 
     async def _one(m: dict) -> CompetitorMatch:
+        # 1) Confirmed memory wins — reuse the human-verified link (fresh price).
+        conf = confirmed.get(m["cid"])
+        if conf and conf.get("label") == "correct" and conf.get("matched_url"):
+            cm = await _confirmed_match(m["cid"], m["name"], conf, ref, dk_price, m["known"])
+            if cm is not None:
+                return cm
+            # dead/changed link → fall through to live discovery below
+        elif conf and conf.get("label") == "no_match":
+            return _no_match(m["cid"], m["name"], 0, note="Confirmed: not sold here")
         if not m["on_shopping"]:
             return _no_match(m["cid"], m["name"], 0, note="Not on Google Shopping")
         # Direct (immersive) url first, then the free organic candidates.
@@ -233,5 +299,6 @@ async def serp_compare(name: str) -> CompareResult:
             card_title=m.get("card_title"))
 
     comps = await asyncio.gather(*(_one(m) for m in top))
+    comps = [_flag_review(c, dk_price) for c in comps]
     return CompareResult(dentalkart=DkRow(name=name), dentalkart_match=dk_match,
                          competitors=list(comps))

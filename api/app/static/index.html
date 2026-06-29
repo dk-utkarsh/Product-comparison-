@@ -1045,7 +1045,8 @@ function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null
       <div class="cell-body">
         <div class="cell-price">${fmtMoney(c.matched_price)}</div>
         <div class="cell-name" title="${enc(c.matched_name || c.competitor_name || "")}">${enc(c.matched_name || "(Google Shopping listing)")}</div>
-        ${c.note ? `<div class="cell-meta" style="font-style:italic;color:var(--ink-mute);">${enc(c.note)}</div>` : ""}
+        ${c.note ? `<div class="cell-meta" style="font-style:italic;color:${c.note && c.note.indexOf("Confirmed")===0 ? "#0a7d4f" : "var(--ink-mute)"};">${enc(c.note)}</div>` : ""}
+        ${c.needs_review ? `<div class="cell-meta" title="${enc((c.review_flags||[]).join(" · "))}" style="color:#b04a2f;font-weight:600;">⚠ review${(c.review_flags||[]).length ? ": " + enc(c.review_flags[0]) : ""}</div>` : ""}
         <div class="cell-meta">
           ${verdictBadge(c.verdict)}
           <span class="score-num">${(c.score ?? 0).toFixed(2)}</span>
@@ -1393,12 +1394,15 @@ function renderResults(data, elapsed) {
     n + r.competitors.filter(c => isShownMatch(c) && (c.price_diff_vs_dk ?? 0) < 0).length, 0);
   const pricier = data.results.reduce((n, r) =>
     n + r.competitors.filter(c => isShownMatch(c) && (c.price_diff_vs_dk ?? 0) > 0).length, 0);
+  const flagged = data.results.reduce((n, r) =>
+    n + r.competitors.filter(c => isShownMatch(c) && c.needs_review).length, 0);
 
   $("summary").innerHTML = `
     ${data.total} ${data.total === 1 ? "product" : "products"}
     <span class="pill">${compHits} matches</span>
     <span class="pill rust">${cheaper} pricier elsewhere</span>
     <span class="pill emerald">${pricier} cheaper elsewhere</span>
+    ${flagged ? `<span class="pill" style="background:#fbeae5;color:#b04a2f;">⚠ ${flagged} need review</span>` : ""}
   `;
 
   // Render the table FIRST so a later insights error can never hide the results

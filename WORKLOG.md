@@ -143,6 +143,36 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-29 (pm) — Learning loop: confirmed-match memory + auto-flag review
+
+Built the #4+#5 plan the product owner asked for: flag what needs a human look,
+remember every human confirmation, and reuse it next time.
+
+- **Confirmed-match store** (`run_store`): new SQLite `confirmed_matches` table keyed
+  by NORMALIZED dk name → per-competitor {label correct|no_match, matched_url,
+  matched_name}. `upsert_confirmed` / `get_confirmed` / `clear_confirmed` /
+  `confirmed_count`. We store the LINK, not the price.
+- **Write path** (`routes/reviews`): a ✓-correct row now stores each page-verified
+  shown match (url + price, no reject note) as a confirmed link — "learned: N" in
+  the response. Verified end-to-end via POST /reviews (the "Different product" cell
+  was correctly NOT stored). The PG-backed /feedback + /golden paths were left
+  alone (Postgres isn't running here).
+- **Read path** (`routes/serp`): `serp_compare` consults the confirmed memory FIRST
+  — `_confirmed_match` re-scrapes the stored URL for a FRESH price and returns a
+  "Confirmed by you ✓" match; a dead/changed link (fetch fails or now structured-
+  rejects) falls back to live discovery. `no_match` confirmations short-circuit to
+  "Confirmed: not sold here".
+- **Auto-flag** (`_flag_review` + `CompetitorMatch.needs_review/review_flags`): a
+  shown match is flagged for review on real signals only — verdict=possible,
+  spec=different-size, cosine<0.6, or price ≥2x off DK. Tuned to NOT flag clean
+  exact matches (initial version wrongly flagged same-tier/unknown). UI shows a
+  "⚠ review" badge per cell + a "⚠ N need review" pill in the results summary;
+  "Confirmed by you ✓" cells render green and are never flagged.
+
+Net: accuracy compounds (confirmed links stick, mistakes get re-checked) and the
+reviewer's attention is steered to the few flagged cells instead of every row.
+Reviewer to run the regression suite.
+
 ### 2026-06-29 — Compatibility-part guard (fusion-robust) + bulk Google top-10 UX
 
 Continuing the pending list from 06-26.

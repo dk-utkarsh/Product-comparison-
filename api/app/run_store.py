@@ -54,6 +54,18 @@ CREATE TABLE IF NOT EXISTS reviews (
     run_id      INTEGER                 -- the scheduled run reviewed (else NULL)
 );
 CREATE INDEX IF NOT EXISTS ix_reviews_correct ON reviews(correct);
+CREATE TABLE IF NOT EXISTS confirmed_matches (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    dk_key        TEXT NOT NULL,          -- normalized DK product name (the lookup key)
+    competitor_id TEXT NOT NULL,
+    label         TEXT NOT NULL,          -- correct | no_match
+    matched_url   TEXT,                   -- confirmed PDP url (NULL for no_match)
+    matched_name  TEXT,
+    source        TEXT,                   -- review | feedback | golden
+    updated_at    TEXT NOT NULL,
+    UNIQUE(dk_key, competitor_id)
+);
+CREATE INDEX IF NOT EXISTS ix_confirmed_key ON confirmed_matches(dk_key);
 """
 
 
@@ -244,6 +256,54 @@ def review_summary() -> dict[str, Any]:
     total = int(row["total"]); correct = int(row["correct"])
     return {"total": total, "correct": correct,
             "accuracy": round(100.0 * correct / total, 1) if total else None}
+
+
+# ── confirmed matches (the learned memory) ───────────────────────────────────
+# Once a human confirms (or corrects) a product↔competitor match, we remember it
+# keyed by the NORMALIZED dk name (caller supplies the key). On later runs the
+# matcher trusts this instead of re-discovering. We store the LINK, not the price
+# (price is re-scraped fresh each time), plus negative "no_match" truths.
+
+def upsert_confirmed(dk_key: str, competitor_id: str, label: str,
+                     matched_url: str | None, matched_name: str | None,
+                     source: str, updated_at: str) -> None:
+    """Remember a confirmed truth for (dk_key, competitor). label='correct' stores
+    the confirmed url; label='no_match' remembers there is none. Re-confirming
+    overwrites the previous answer."""
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO confirmed_matches "
+            "(dk_key, competitor_id, label, matched_url, matched_name, source, updated_at) "
+            "VALUES (?,?,?,?,?,?,?) "
+            "ON CONFLICT(dk_key, competitor_id) DO UPDATE SET "
+            "label=excluded.label, matched_url=excluded.matched_url, "
+            "matched_name=excluded.matched_name, source=excluded.source, "
+            "updated_at=excluded.updated_at",
+            (dk_key, competitor_id, label, matched_url, matched_name, source, updated_at),
+        )
+
+
+def clear_confirmed(dk_key: str, competitor_id: str) -> None:
+    """Forget a confirmation (e.g. a 👎 says the remembered match is now wrong) so
+    the matcher reverts to live discovery for that cell."""
+    with _conn() as c:
+        c.execute("DELETE FROM confirmed_matches WHERE dk_key=? AND competitor_id=?",
+                  (dk_key, competitor_id))
+
+
+def get_confirmed(dk_key: str) -> dict[str, dict[str, Any]]:
+    """All confirmed truths for a product → {competitor_id: {label, matched_url,
+    matched_name, updated_at}}. Empty when nothing is remembered."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT competitor_id, label, matched_url, matched_name, updated_at "
+            "FROM confirmed_matches WHERE dk_key=?", (dk_key,)).fetchall()
+    return {r["competitor_id"]: dict(r) for r in rows}
+
+
+def confirmed_count() -> int:
+    with _conn() as c:
+        return int(c.execute("SELECT COUNT(*) FROM confirmed_matches").fetchone()[0])
 
 
 def prune(retention_days: int) -> int:
