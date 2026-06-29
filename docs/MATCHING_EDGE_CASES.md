@@ -76,6 +76,12 @@ the suite); extraction cases are harder to unit-test (live HTML) so they live he
     pack + price band — not just the raw name string.
 17. **Price band** — an 8×+ per-unit gap (uncorroborated, weak name) = different
     product. Confirmed/exact names exempt.
+18. **"Extra" formulation difference FLAGS, doesn't HIDE** — "(Extra)" vs not used
+    to hard-reject, but it's often just naming: a competitor sells GC "Gold Label 9
+    Extra" as "HS / High Strength Posterior" (same product) or omits the word. Now
+    a formulation difference → BORDERLINE + ⚠ "possible formulation difference
+    (Extra)", never CONFIRMED, never hidden. Recovered buzzdent/onlinedental/
+    medidentalpro/dentalbucket for the GC Gold Label 9 product.
 
 ## E. Foreign / currency
 

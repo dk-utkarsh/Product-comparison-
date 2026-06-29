@@ -159,23 +159,19 @@ def structured_match(search: ProductRecord, candidate: ProductRecord) -> Structu
             StructuredVerdict.REJECTED, MatchFeatures(),
             [f"model code {sorted(s_codes)[0]!r} absent"])
 
-    # Sub-variant / composition check. The "Extra" formulation line is a
-    # genuinely different product — never match it to the non-Extra line, even
-    # when the base names are identical.
+    # Sub-variant / composition check. An "Extra" formulation difference is
+    # SOMETIMES a genuinely different product, but often just naming — a competitor
+    # sells the same item as "HS / High Strength Posterior" (which IS GC's "Extra"
+    # line) or omits the word. So we no longer HIDE it: a formulation difference is
+    # surfaced as a ⚠ review flag (BORDERLINE), never CONFIRMED, so a correct
+    # same-product listing isn't silently lost. The reviewer ✓keep / ✗hide decides.
     spec_match: str | None = None
+    formulation_diff = False
     if search.variant_spec is not None and candidate.variant_spec is not None:
         sm_enum = compare_spec(search.variant_spec, candidate.variant_spec)
         spec_match = sm_enum.value
         if sm_enum is SpecMatch.DIFFERENT_FORMULATION:
-            return StructuredResult(
-                StructuredVerdict.REJECTED, MatchFeatures(),
-                [
-                    "different formulation: "
-                    f"{describe_spec(search.variant_spec)} vs "
-                    f"{describe_spec(candidate.variant_spec)}"
-                ],
-                spec_match=spec_match,
-            )
+            formulation_diff = True
 
     # Hard rule: a variant attribute explicitly present on BOTH sides and
     # different means different variant. A2 != A3, .016 != .018.
@@ -255,6 +251,11 @@ def structured_match(search: ProductRecord, candidate: ProductRecord) -> Structu
         reasons.append(f"different size: {pack_note}")
     elif spec_match in (SpecMatch.EXACT.value, SpecMatch.SAME_TIER.value):
         reasons.append(f"spec {spec_match}")
+    if formulation_diff:
+        reasons.append(
+            f"possible formulation difference (Extra): "
+            f"{describe_spec(search.variant_spec)} vs {describe_spec(candidate.variant_spec)}"
+        )
 
     # ── Look deeper than the NAME when it differs only slightly ──────────────
     # A high token/fuzz score is not enough on its own: two near-identical names
@@ -292,7 +293,7 @@ def structured_match(search: ProductRecord, candidate: ProductRecord) -> Structu
     # An exact composition match is itself strong evidence the data is sound.
     if spec_match == SpecMatch.EXACT.value:
         data_ok = True
-    if strong_line and brand_ok and price_ok and data_ok and (
+    if strong_line and brand_ok and price_ok and data_ok and not formulation_diff and (
         compared >= 1 or cosine >= 0.85 or near_exact
     ):
         return StructuredResult(
