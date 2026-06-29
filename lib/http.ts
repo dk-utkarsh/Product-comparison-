@@ -52,7 +52,12 @@ const PROXY_HOSTS = new Set(["pinkblue.in", "www.pinkblue.in"]);
 
 function maybeProxy(url: string): string {
   const key = process.env.SCRAPER_API_KEY;
-  if (!key) return url;
+  // Routing pinkblue through ScraperAPI is OPT-IN via PROXY_PINKBLUE — it's only
+  // needed on datacenter IPs (production), where pinkblue firewalls the server.
+  // Locally pinkblue is reachable direct, so we must NOT proxy it just because a
+  // key is present (it both fails locally and burns credits). The generic
+  // ScraperAPI fallback (scraperApiUrl) is independent and only needs the key.
+  if (!key || !process.env.PROXY_PINKBLUE) return url;
   try {
     const host = new URL(url).hostname;
     if (PROXY_HOSTS.has(host)) {

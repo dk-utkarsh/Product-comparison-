@@ -36,14 +36,16 @@ export async function fetchGenericProduct(url: string): Promise<ProductData | nu
   let html = await getHtml(url);
   let pdp = html ? parsePdpHtml(html) : null;
 
-  // 2) FALLBACK via ScraperAPI — only when the direct attempt yielded no usable
-  //    product (page blocked datacenter IPs, needs JS, or returned nothing). This
-  //    spends a ScraperAPI credit, so it fires solely on the hard cases.
-  if ((!pdp || !pdp.name || !(pdp.price > 0))) {
+  // 2) FALLBACK via ScraperAPI (proxy, no JS render) — only when the direct fetch
+  //    yielded no usable product (page blocks datacenter IPs). Cheap (~1 credit)
+  //    and fires solely on hard cases. JS-app (SPA) pages are NOT escalated to a
+  //    rendered fetch: rendering costs ~25 credits and those pages usually ship no
+  //    structured price anyway, so it would drain credits for nothing.
+  if (!pdp || !pdp.name || !(pdp.price > 0)) {
     const viaScraper = scraperApiUrl(url);
     if (viaScraper) {
-      html = await getHtml(viaScraper, 40000);   // ScraperAPI is slower
-      const sp = html ? parsePdpHtml(html) : null;
+      const h2 = await getHtml(viaScraper, 40000);
+      const sp = h2 ? parsePdpHtml(h2) : null;
       if (sp && sp.name && sp.price > 0) pdp = sp;
     }
   }

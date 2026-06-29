@@ -143,6 +143,36 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-29 (pm-3) — Single-letter model discrimination (UDS E≠P) + ScraperAPI decoupled
+
+Triggered by "Woodpecker UDS E LED" matching UDS-P listings.
+
+- **Single-letter model designator gate** (`attributes.py`): a standalone UPPERCASE
+  letter ("UDS **E**" vs "UDS **P**", "Type A" vs "Type B", "D Speed" vs "E Speed")
+  is now captured as a model code (`ml_e`, `ml_p`), so the existing model-code gate
+  rejects differing letters while tolerating one side omitting it. Articles A/I and
+  dimension X excluded. Verified: UDS-P → REJECTED, all UDS-E variants MATCH; no
+  regression on J-Morita (initial), Kids-e-Crown, S/M sizes.
+- **ScraperAPI decoupled from pinkblue** (`lib/http.ts`): routing pinkblue through
+  the proxy is now gated on a separate `PROXY_PINKBLUE` flag (set only in prod).
+  So `SCRAPER_API_KEY` can be enabled in DEV for the generic fallback WITHOUT
+  breaking pinkblue (which works direct locally). Key enabled in local .env
+  (gitignored); `PROXY_PINKBLUE` left unset locally.
+- **Generic fallback stays cheap** (`generic.ts`): direct fetch → ScraperAPI PROXY
+  (no JS render). Deliberately NOT escalating SPA pages to a rendered fetch —
+  render costs ~25 credits and those pages usually ship no structured price, so it
+  would drain credits for nothing.
+- **No body-text price scraping** (`pdp.ts`): removed — on real pages it grabbed
+  the struck-through MRP or concatenated digits (dentalstores.in → "2500024"). A
+  page with no STRUCTURED price now stays UNVERIFIED (correct: a wrong price is
+  worse than none). Kept harmless name fallbacks (<title>, <h1>). Reading such
+  JS-app pages correctly needs an AI extractor — parked (no Anthropic API key).
+
+DECISION: AI extractor + LLM judge (the self-adapting path that would end the
+per-site patch cycle) is PARKED — needs an Anthropic API key (the Max plan does
+NOT cover programmatic API use). Staying with rules + ScraperAPI proxy + the ⚠
+review flag + ✓ keep / ✗ hide learning. Reviewer to run the regression suite.
+
 ### 2026-06-29 (pm-2) — Verify unreachable PDPs + foreign-site filter + per-cell action + Google-order columns
 
 Follow-ups driven by real cases (thedentistshop "couldn't verify", IPG Dental foreign listing).

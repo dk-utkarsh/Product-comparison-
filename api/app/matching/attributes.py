@@ -192,6 +192,16 @@ def _first_match(pat: re.Pattern[str], text: str) -> str | None:
     return m.group(1) if m else None
 
 
+# A standalone single UPPERCASE letter is a MODEL DESIGNATOR — "UDS E" vs "UDS P",
+# "Type A" vs "Type B", "D Speed" vs "E Speed" — i.e. a DIFFERENT product. Captured
+# as a model code (namespaced 'ml_') so the model-code gate separates differing
+# letters (E ≠ P) yet still tolerates one side omitting it. Only uppercase (real
+# designators are capitalised; incidental lowercase letters aren't). Articles A/I
+# and the dimension marker X are excluded.
+_MODEL_LETTER_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z](?![A-Za-z0-9])")
+_MODEL_LETTER_STOP = frozenset({"A", "I", "X"})
+
+
 def extract_attributes(name: str) -> Attributes:
     lower = name.lower()
 
@@ -218,6 +228,11 @@ def extract_attributes(name: str) -> Attributes:
     model_codes += [f"{m.group(1)}oz" for m in _OZ_RE.finditer(name)]
     model_codes += [f"{m.group(1)}/{m.group(2)}" for m in _FRAC_RE.finditer(name)]
     model_codes += [f"sz{m.group(1)}" for m in _DECIMAL_SIZE_RE.finditer(name)]
+    model_codes += [
+        f"ml_{m.group(0).lower()}"
+        for m in _MODEL_LETTER_RE.finditer(name)
+        if m.group(0) not in _MODEL_LETTER_STOP
+    ]
 
     viscosity: str | None = None
     for v in _VISCOSITY_VARIANTS:

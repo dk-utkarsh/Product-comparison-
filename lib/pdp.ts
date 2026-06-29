@@ -111,6 +111,10 @@ export function parsePdpHtml(html: string): PdpData | null {
 
   // og: / meta fallback for anything still missing.
   if (!name) name = $('meta[property="og:title"]').attr("content")?.trim() || "";
+  if (!name) name = ($("title").first().text() || "").split(/[|–—]/)[0].trim();
+  // Rendered SPA with no <title>/og:title (e.g. dentalstores.in) — the product
+  // name sits in the page heading.
+  if (!name) name = stripHtml($("h1").first().html() || "").trim();
   if (!description)
     description =
       $('meta[property="og:description"]').attr("content")?.trim() ||
@@ -142,6 +146,12 @@ export function parsePdpHtml(html: string): PdpData | null {
     else if (/£|\bGBP\b/.test(html)) currency = "GBP";
     else if (/\bAED\b|\bCAD\b|\bAUD\b|\bSGD\b/.test(html)) currency = "FOREIGN";
   }
+
+  // NOTE: we deliberately do NOT scrape a price from free body text. On real
+  // pages that yields wrong numbers — it grabs the struck-through MRP or
+  // concatenates adjacent digits (dentalstores.in → "2500024"). A wrong price is
+  // worse than none, so a page with no STRUCTURED price stays unverified. (Reading
+  // such JS-app pages correctly needs the AI extractor — not enabled.)
 
   if (!name) return null;
   return { name, description, sku, brand, price, mrp: mrp || price, image, inStock, currency };
