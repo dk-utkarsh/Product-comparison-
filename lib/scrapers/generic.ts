@@ -12,11 +12,12 @@
  * Returns null on any failure — the caller then shows the Google-Shopping card
  * price as a last resort.
  */
+import * as cheerio from "cheerio";
 import { smartFetch, scraperApiUrl } from "../http";
 import { parsePdpHtml } from "../pdp";
 import { detectPackSize, calculateUnitPrice } from "../pack-detector";
 import { parseVariantSpec } from "../variant-spec";
-import type { ProductData } from "../types";
+import type { ProductData, ProductVariant } from "../types";
 
 /** Fetch a URL's HTML, returning null on any non-OK / error. */
 async function getHtml(url: string, timeout = 12000): Promise<string | null> {
@@ -27,6 +28,43 @@ async function getHtml(url: string, timeout = 12000): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/** WooCommerce VARIABLE products embed every variation (size + price) in the page
+ *  as `data-product_variations` on the variations form. Without this, a variable
+ *  product (e.g. ayushidensity.com sterilization reel: 55/75/100/150/200/300 MM)
+ *  returns only the DEFAULT price — the wrong sub-variant. Extracting them lets the
+ *  Python `select_variant` pick the one matching the DK size. Returns [] when the
+ *  page is not a WooCommerce variable product. */
+function parseWooVariations(html: string): ProductVariant[] {
+  const $ = cheerio.load(html);
+  const raw = $("[data-product_variations]").first().attr("data-product_variations");
+  if (!raw || raw === "false") return [];
+  let arr: Array<Record<string, unknown>>;
+  try {
+    arr = JSON.parse(raw); // cheerio already HTML-entity-decodes the attribute
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(arr)) return [];
+  const out: ProductVariant[] = [];
+  for (const v of arr) {
+    const attrs = (v.attributes as Record<string, string>) || {};
+    const name = Object.values(attrs).filter(Boolean).join(" ").trim();
+    const price = Number(v.display_price) || 0;
+    if (!name || !(price > 0)) continue;
+    const packSize = detectPackSize(name);
+    out.push({
+      name,
+      sku: String(v.sku || ""),
+      price,
+      mrp: Number(v.display_regular_price) || price,
+      packSize,
+      unitPrice: calculateUnitPrice(price, packSize),
+      variantSpec: parseVariantSpec(name),
+    });
+  }
+  return out;
 }
 
 export async function fetchGenericProduct(url: string): Promise<ProductData | null> {
@@ -46,11 +84,16 @@ export async function fetchGenericProduct(url: string): Promise<ProductData | nu
     if (viaScraper) {
       const h2 = await getHtml(viaScraper, 40000);
       const sp = h2 ? parsePdpHtml(h2) : null;
-      if (sp && sp.name && sp.price > 0) pdp = sp;
+      if (sp && sp.name && sp.price > 0) { pdp = sp; html = h2; }
     }
   }
 
   if (!pdp || !pdp.name || !(pdp.price > 0)) return null;
+
+  // Sub-variants of a WooCommerce VARIABLE product (size/spec dropdown) — so the
+  // Python variant-picker resolves to the one matching the DK product (e.g. the
+  // 150MM reel), not the base/default price.
+  const variants = html ? parseWooVariations(html) : [];
 
   // Currency guard: all our competitors are Indian (gl=in). A page that declares a
   // NON-INR currency is a foreign storefront — its price isn't comparable (e.g. a
@@ -79,5 +122,6 @@ export async function fetchGenericProduct(url: string): Promise<ProductData | nu
     unitPrice: calculateUnitPrice(price, packSize),
     sku: pdp.sku || undefined,
     variantSpec: parseVariantSpec(pdp.name),
+    variants: variants.length ? variants : undefined,
   };
 }

@@ -354,7 +354,7 @@
       background: #fafbfc; position: sticky; top: 0; z-index: 1;
     }
     table.compare-table td {
-      padding: 16px; border-bottom: 1px solid var(--rule);
+      padding: 12px 14px; border-bottom: 1px solid var(--rule);
       vertical-align: top;
     }
     table.compare-table tr:hover td {
@@ -385,19 +385,52 @@
       font-size: 9px; color: var(--ink-mute); background: #f3f4f6;
     }
     .cell-body { min-width: 0; flex: 1; }
+    .cell-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
     .cell-price {
       font-family: 'JetBrains Mono', monospace;
       font-size: 15px; font-weight: 500; color: var(--ink);
     }
+    .cell-delta { font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: nowrap; }
+    /* Long names are clamped to 2 lines; full text on hover (title). Keeps cells
+       a uniform, scannable height instead of 5–6 wrapped lines. */
     .cell-name {
-      font-size: 12px; color: var(--ink); line-height: 1.4;
-      margin-top: 3px; max-width: 340px;
+      font-size: 12px; color: var(--ink); line-height: 1.35;
+      margin-top: 2px; max-width: 320px;
       overflow-wrap: anywhere; word-break: break-word;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden;
     }
     .cell-meta {
       display: flex; gap: 8px; align-items: center;
-      margin-top: 8px; flex-wrap: wrap;
+      margin-top: 6px; flex-wrap: wrap;
     }
+    .cell-status { margin-top: 6px; }
+    .cell-tag { font-size: 11px; }
+    .cell-tag.ok   { color: var(--emerald); font-weight: 600; }
+    .cell-tag.mute { color: var(--ink-mute); font-style: italic; }
+    .cell-tag.warn { color: var(--rust); font-weight: 600; }
+    /* Compact keep/hide actions */
+    .cc-row { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+    .cc-btn {
+      font-size: 11px; padding: 3px 9px; border-radius: 5px;
+      border: 1px solid var(--rule); background: var(--paper);
+      cursor: pointer; color: var(--ink-mute); transition: all .12s;
+    }
+    .cc-btn.keep:hover { border-color: var(--emerald); color: var(--emerald); background: var(--emerald-tint); }
+    .cc-btn.hide:hover { border-color: var(--rust); color: var(--rust); background: var(--rust-tint); }
+    /* Hover tooltip (the Google toggle's ⓘ, and reusable elsewhere) */
+    .tip { position: relative; cursor: help; color: var(--ink-mute); font-style: normal; }
+    .tip .tip-box {
+      visibility: hidden; opacity: 0; transition: opacity .12s;
+      position: absolute; left: 0; top: 150%; z-index: 100;
+      width: 300px; max-width: 70vw;
+      background: #1f2937; color: #fff; font-size: 12px; font-weight: 400;
+      line-height: 1.45; text-transform: none; letter-spacing: normal;
+      padding: 9px 11px; border-radius: 7px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.18);
+    }
+    .tip .tip-box strong { color: #fff; }
+    .tip:hover .tip-box { visibility: visible; opacity: 1; }
     .badge {
       display: inline-block; font-size: 9px; letter-spacing: 0.08em;
       text-transform: uppercase; padding: 3px 8px; border-radius: 4px;
@@ -413,7 +446,7 @@
     }
     .cell-link {
       font-size: 11px; color: var(--brand); text-decoration: none;
-      margin-top: 6px; display: inline-block;
+      display: inline-block;
       border-bottom: 1px solid transparent;
     }
     .cell-link:hover { border-color: var(--brand); }
@@ -531,13 +564,13 @@
       <div class="card">
         <p class="section-label"><span class="num">1</span>Quick search</p>
         <p class="helper-text">Type one product name to test a single comparison.</p>
-        <label id="serpToggleWrap" style="display:inline-flex;align-items:center;gap:9px;margin:2px 0 14px;cursor:pointer;user-select:none;font-size:13px;">
+        <label id="serpToggleWrap" title="Finds the top competitors via Google Shopping (up to 10) and verifies each on its own page. Applies to this single search AND the batch upload below — the batch is capped to the first 15 products (Google quota is limited)." style="display:inline-flex;align-items:center;gap:9px;margin:2px 0 14px;cursor:pointer;user-select:none;font-size:13px;">
           <span style="position:relative;display:inline-block;width:38px;height:22px;flex:0 0 auto;">
             <input type="checkbox" id="serpToggle" style="opacity:0;width:0;height:0;position:absolute;" />
             <span id="serpKnob" style="position:absolute;inset:0;background:var(--line,#d2d2d7);border-radius:22px;transition:.18s;"></span>
           </span>
-          <span><strong>🔍 Use Google (SerpAPI)</strong> — find the top competitors via Google Shopping (up to 10), then verify each on its own page.
-            <span style="color:var(--ink-mute);">Applies to this single search AND the batch upload below (batch is capped to the first 15 products — Google quota is limited).</span>
+          <span><strong>🔍 Use Google (SerpAPI)</strong>
+            <span class="tip">ⓘ<span class="tip-box">Finds the top competitors via Google Shopping (up to 10) and verifies each on its own page. Applies to this single search <strong>and</strong> the batch upload below — the batch is capped to the first 15 products (Google quota is limited).</span></span>
           </span>
         </label>
         <div class="quick-row">
@@ -1011,63 +1044,42 @@ function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null
     if (c && c.note) {
       return `<td><div class="empty-cell" style="color:var(--ink-mute);font-style:italic;">${enc(c.note)}</div></td>`;
     }
-    const gId = Math.random().toString(36).slice(2);
-    const noMatchBtn = !isDk && c ? `
-      <div class="fb-row" id="fb-${gId}" data-payload='${enc(JSON.stringify({
-        search_term: searchTerm, competitor_id: c.competitor_id }))}'>
-        <button class="fb-btn" title="Golden: no match exists here"
-          onclick="sendGolden('${gId}', 'no_match')">∅</button>
-      </div>` : "";
-    return `<td><div class="empty-cell">no match<small>${c?.candidates_seen ?? 0} candidates scanned</small></div>${noMatchBtn}</td>`;
+    return `<td><div class="empty-cell">no match<small>${c?.candidates_seen ?? 0} candidates scanned</small></div></td>`;
   }
   const img = c.matched_image
     ? `<img class="cell-thumb" src="${enc(c.matched_image)}" alt="" loading="lazy" />`
     : `<div class="cell-thumb placeholder">no img</div>`;
 
   const fbId = Math.random().toString(36).slice(2);
-  const fbPayload = JSON.stringify({
-    search_term: searchTerm,
-    competitor_id: c.competitor_id,
-    matched_name: c.matched_name,
-    matched_url: c.matched_url,
-    matched_price: c.matched_price,
-    dk_price: dkPrice,
-    dk_url: dkUrl,
-    score: c.score,
-    cosine: c.cosine,
-    verdict: c.verdict,
-    reasons: (c.reasons || []).join(" · "),
-  });
+  // Status line: confirmed-by-you (green) / review warning (rust) — one line only.
+  const isConfirmed = c.note && c.note.indexOf("Confirmed") === 0;
+  let status = "";
+  if (c.note) status = `<span class="cell-tag ${isConfirmed ? "ok" : "mute"}">${enc(c.note)}</span>`;
+  else if (c.needs_review)
+    status = `<span class="cell-tag warn" title="${enc((c.review_flags || []).join(" · "))}">⚠ ${enc(c.review_flags[0] || "review")}</span>`;
 
   return `<td>
     <div class="cell-flex">
       ${img}
       <div class="cell-body">
-        <div class="cell-price">${fmtMoney(c.matched_price)}</div>
-        <div class="cell-name" title="${enc(c.matched_name || c.competitor_name || "")}">${enc(c.matched_name || "(Google Shopping listing)")}</div>
-        ${c.note ? `<div class="cell-meta" style="font-style:italic;color:${c.note && c.note.indexOf("Confirmed")===0 ? "#0a7d4f" : "var(--ink-mute)"};">${enc(c.note)}</div>` : ""}
-        ${c.needs_review ? `<div class="cell-meta" title="${enc((c.review_flags||[]).join(" · "))}" style="color:#b04a2f;font-weight:600;">⚠ review${(c.review_flags||[]).length ? ": " + enc(c.review_flags[0]) : ""}</div>` : ""}
+        <div class="cell-top">
+          <span class="cell-price">${fmtMoney(c.matched_price)}</span>
+          ${!isDk ? `<span class="cell-delta">${fmtDiff(c.price_diff_vs_dk)}</span>` : ""}
+        </div>
+        <div class="cell-name" title="${enc(c.matched_name || c.competitor_name || "")}">${enc(c.matched_name || "(Google listing)")}</div>
         <div class="cell-meta">
           ${verdictBadge(c.verdict)}
           <span class="score-num">${(c.score ?? 0).toFixed(2)}</span>
+          ${c.matched_url ? `<a class="cell-link" href="${enc(c.matched_url)}" target="_blank" rel="noopener">view ↗</a>` : ""}
         </div>
-        ${c.matched_url ? `<a class="cell-link" href="${enc(c.matched_url)}" target="_blank" rel="noopener">view ↗</a>` : ""}
-        ${!isDk ? `<div>${fmtDiff(c.price_diff_vs_dk)}</div>` : ""}
-        ${c.pack_note ? `<div class="cell-meta"><span class="score-num">${enc(c.pack_note)}${c.price_diff_per_unit != null ? " · Δ/unit " + fmtMoney(Math.abs(c.price_diff_per_unit)) + (c.price_diff_per_unit > 0 ? " below DK" : " above DK") : ""}</span></div>` : ""}
-        <div class="fb-row" id="fb-${fbId}" data-payload='${enc(fbPayload)}'>
-          <button class="fb-btn up"   title="Correct match"   onclick="sendFeedback('${fbId}', true)">👍</button>
-          <button class="fb-btn down" title="Wrong match"     onclick="sendFeedback('${fbId}', false)">👎</button>
-          ${!isDk ? `<button class="fb-btn" title="Save as golden truth"
-            onclick="sendGolden('${fbId}', 'correct')">⭐</button>` : ""}
-        </div>
+        ${status ? `<div class="cell-status">${status}</div>` : ""}
         ${!isDk ? `<div class="cc-row" id="cc-${fbId}" data-payload='${enc(JSON.stringify({
             product: searchTerm, competitor_id: c.competitor_id,
-            matched_url: c.matched_url, matched_name: c.matched_name }))}'
-            style="margin-top:5px;display:flex;gap:6px;align-items:center;">
-          <button class="fb-btn" title="Correct — remember this match for next time"
-            onclick="confirmCell('${fbId}', true)" style="font-size:11px;">✓ keep</button>
-          <button class="fb-btn" title="Wrong — don't show this competitor for this product next time"
-            onclick="confirmCell('${fbId}', false)" style="font-size:11px;">✗ hide</button>
+            matched_url: c.matched_url, matched_name: c.matched_name }))}'>
+          <button class="cc-btn keep" title="Correct — remember this match for next time"
+            onclick="confirmCell('${fbId}', true)">✓ keep</button>
+          <button class="cc-btn hide" title="Wrong — don't show this competitor for this product next time"
+            onclick="confirmCell('${fbId}', false)">✗ hide</button>
         </div>` : ""}
       </div>
     </div>
@@ -1086,14 +1098,20 @@ let CURRENT_RUN_ID = null;                   // set when reviewing a scheduled r
 function competitorColumns(results) {
   const cols = [];
   const seen = new Set();
+  const hits = {};                                   // competitor_id → # verified matches
   for (const r of results) for (const c of (r.competitors || [])) {
     const id = c.competitor_id;
-    if (id && !seen.has(id)) {
-      seen.add(id);
-      cols.push([id, c.competitor_name || id]);
-    }
+    if (!id) continue;
+    if (!seen.has(id)) { seen.add(id); cols.push([id, c.competitor_name || id]); }
+    if (isShownMatch(c)) hits[id] = (hits[id] || 0) + 1;
   }
-  return cols.length ? cols : COMPETITORS;
+  if (!cols.length) return COMPETITORS;
+  // Matched competitors FIRST (most matches first), unmatched/other after —
+  // stable within each group (Google-rank / first-seen order preserved).
+  return cols
+    .map((col, i) => ({ col, i, m: hits[col[0]] || 0 }))
+    .sort((a, b) => (b.m > 0) - (a.m > 0) || b.m - a.m || a.i - b.i)
+    .map((x) => x.col);
 }
 
 function compareTableHTML(results) {

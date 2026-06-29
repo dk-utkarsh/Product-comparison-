@@ -18,6 +18,14 @@ import re
 from rapidfuzz import fuzz
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
+# A number followed by a unit is JOINED into one compound token ("150 MM" →
+# "150mm") so the spaced and glued forms match — DK "150MM" ≡ a variant
+# "150 MM x 200 M" — AND the unit stays bound to its number, so the 200-WIDTH
+# ("200mm") stays distinct from the 200-metre LENGTH ("200m"). Without this, a
+# bare "200" matches both and the wrong reel size is picked.
+_UNITS: frozenset[str] = frozenset({
+    "mm", "cm", "m", "mtr", "mtrs", "mts", "ml", "mg", "kg", "gm", "g", "oz", "l",
+})
 
 # Common dental/marketing tokens that shouldn't decide a match. Anything in
 # this set still contributes to overlap, but at 0.1 weight instead of 1.0.
@@ -39,7 +47,20 @@ _DEFAULT_WEIGHT = 1.0
 
 
 def tokenize(text: str) -> list[str]:
-    return _TOKEN_RE.findall(text.lower())
+    raw = _TOKEN_RE.findall(text.lower())
+    out: list[str] = []
+    i = 0
+    while i < len(raw):
+        t = raw[i]
+        # JOIN a bare number + following unit ("150" "mm" → "150mm") so spaced and
+        # glued size forms match and the unit stays bound to its number.
+        if t.isdigit() and i + 1 < len(raw) and raw[i + 1] in _UNITS:
+            out.append(t + raw[i + 1])
+            i += 2
+        else:
+            out.append(t)
+            i += 1
+    return out
 
 
 def distinguishing_tokens(text: str) -> set[str]:

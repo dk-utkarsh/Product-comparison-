@@ -143,6 +143,30 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-29 (pm-5) — Sub-variant on variable products + size tokenization + UI declutter
+
+Triggered by Ayushi Density sterilization reel (wrong size price) + UI feedback.
+
+- **Sub-variant for WooCommerce variable products** (`lib/scrapers/generic.ts`): the
+  generic reader now extracts `data-product_variations` (size + price for every
+  variation) into `variants[]`, so the existing Python `select_variant` can pick
+  the one matching the DK size. Previously only the DEDICATED scrapers populated
+  variants, so generic merchants returned the base/default price. Ayushi now
+  resolves all 6 reel sizes correctly (150MM → ₹1,770, etc.).
+- **Size tokenization** (`tokens.py`): JOIN a number + unit into one token
+  ("150 MM" → "150mm") so the spaced and glued forms match (DK "150MM" ≡ variant
+  "150 MM x 200 M") AND the unit stays bound — "200mm" (width) ≠ "200m" (length),
+  which was making a bare "200" match the wrong reel. Model codes (EXS6, V2) stay
+  whole (letter-first). Fixed all 6 sizes incl. the 200MM/200M collision.
+- **UI declutter** (`index.html`): removed the dead 👍👎⭐ feedback row (Postgres,
+  duplicated ✓keep/✗hide); long names clamped to 2 lines (full on hover); price +
+  Δ on one line, verdict · score · view on one line; tighter row padding. The
+  Google toggle's help text moved to a CSS hover tooltip (the native title was
+  unreliable). Competitor COLUMNS now order matched-first (most matches first),
+  then unmatched/other — stable within each group.
+
+Reviewer to run the regression suite.
+
 ### 2026-06-29 (pm-4) — Freebie-pack false-reject + JSON-LD @type-URL + short model codes + near-name softening
 
 Triggered by "Woodpecker UDS E LED (8 Tips Free)": Dental Bucket / IDS Denmed
