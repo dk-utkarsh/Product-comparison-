@@ -205,7 +205,7 @@ def _brand_compat_only(found: str, brand: str) -> bool:
     return any(w in _COMPAT_MARKERS for w in words[:first])
 
 
-def _brand_match(a: Attributes, search: str, found: str) -> bool:
+def _brand_match(a: Attributes, search: str, found: str, found_desc: str = "") -> bool:
     if not a.brand:
         return True
     # A brand that shows up only as "… For <brand>" is a compatibility note, not
@@ -230,6 +230,27 @@ def _brand_match(a: Attributes, search: str, found: str) -> bool:
     # ("GDC" stays ≠ "Oracraft").
     if len(a.brand) >= 4 and a.brand in re.sub(r"[^a-z0-9]", "", found.lower()):
         return True
+    # Competitor DROPPED the manufacturer and leads with the PRODUCT LINE — "Ketac
+    # Molar" for DK's "3M ESPE Ketac Molar", "Fuji IX" for "GC Fuji IX". If the
+    # found name's own leading brand-token is a distinctive word that appears in the
+    # SEARCH name, it's the same product line → accept despite the missing brand.
+    # (Mirrors the containment check in structured._brand_conflict.) A genuinely
+    # different brand ("GDC …") whose token is NOT in the search still fails.
+    fb = extract_brand(found)
+    if (fb and len(fb) >= 4 and fb != a.brand
+            and fb not in _GENERIC_NOUNS and _word_boundary(search, fb)):
+        return True
+    # The competitor's TITLE may omit the brand while its DESCRIPTION states it —
+    # "Ketac Molar" (title) / "Ketac Molar by 3M ESPE …" (description). Check the
+    # brand in the FIRST part of the description (where a product states its own
+    # brand), guarded against "compatible with <other brand>" notes.
+    if found_desc:
+        head = found_desc[:240].lower()
+        if not _brand_compat_only(head, a.brand) and _word_boundary(head, a.brand):
+            return True
+        for alias in _BRAND_ALIASES.get(a.brand, ()):
+            if all(_word_boundary(head, w) for w in alias.split()):
+                return True
     return False
 
 
@@ -348,11 +369,11 @@ def _number_conflict(search: str, found: str) -> str | None:
     return None
 
 
-def gate_check(search: str, found: str) -> GateResult:
+def gate_check(search: str, found: str, found_desc: str = "") -> GateResult:
     s_attrs = extract_attributes(search)
     f_attrs = extract_attributes(found)
 
-    if not _brand_match(s_attrs, search, found):
+    if not _brand_match(s_attrs, search, found, found_desc):
         return GateResult(False, f"brand mismatch: '{s_attrs.brand}' not in '{found}'")
 
     s_words = _words(search)

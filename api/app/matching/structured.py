@@ -136,7 +136,7 @@ def structured_match(search: ProductRecord, candidate: ProductRecord) -> Structu
         return StructuredResult(
             StructuredVerdict.REJECTED, MatchFeatures(), ["empty name"])
 
-    gate = gate_check(s_norm, c_norm)
+    gate = gate_check(s_norm, c_norm, candidate.description or "")
     if not gate.passed:
         return StructuredResult(
             StructuredVerdict.REJECTED, MatchFeatures(), [gate.reason])

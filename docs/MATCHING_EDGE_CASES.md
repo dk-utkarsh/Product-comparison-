@@ -25,6 +25,13 @@ the suite); extraction cases are harder to unit-test (live HTML) so they live he
 5. **Brand check is alias-aware in BOTH layers** — gate (`_brand_match`) and the
    deeper `structured._brand_conflict` both honour aliases, or one rejects what the
    other accepts.
+5a. **Competitor drops the manufacturer, leads with the PRODUCT LINE** — DK "3M ESPE
+   Ketac Molar", competitor titled just "Ketac Molar" (no 3M). `_brand_match`
+   accepts when the found name's leading token (≥4 chars, non-generic) is a word
+   present in the SEARCH name. A genuinely different brand ("GDC …") still fails.
+5b. **Brand only in the DESCRIPTION** — title "Ketac Molar", description "Ketac
+   Molar **by 3M ESPE** …". `_brand_match` also checks the first ~240 chars of the
+   description for the brand/alias (guarded against "compatible with <other>").
 
 ## B. Model / variant identity
 
