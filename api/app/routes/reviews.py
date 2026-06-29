@@ -93,6 +93,35 @@ def submit_reviews(batch: ReviewBatch) -> dict:
             "overall": run_store.review_summary()}
 
 
+class CellConfirm(BaseModel):
+    product: str
+    competitor_id: str
+    matched_url: str | None = None
+    matched_name: str | None = None
+    correct: bool          # True = this match is right (remember it);
+    #                        False = wrong, don't show this competitor for this name
+
+
+@router.post("/cell")
+def confirm_cell(req: CellConfirm) -> dict:
+    """Act on a single competitor cell. correct=True remembers the link (reused +
+    re-priced next time); correct=False stores a NO-MATCH so this competitor is no
+    longer shown for this product (kills a wrong/foreign listing like the flagged
+    'Root ZX Mini' on a 'ZX Apex Locator Accessories' search)."""
+    run_store.init_db()
+    key = _confirm_key(req.product)
+    if not key:
+        return {"status": "skip"}
+    tz = ZoneInfo(get_settings().scheduled_run_tz)
+    now = datetime.now(tz).isoformat(timespec="seconds")
+    label = "correct" if req.correct else "no_match"
+    run_store.upsert_confirmed(key, req.competitor_id, label,
+                               req.matched_url if req.correct else None,
+                               req.matched_name, "cell", now)
+    log.info("cell-confirm", product=req.product, competitor=req.competitor_id, label=label)
+    return {"status": "ok", "label": label}
+
+
 @router.get("")
 def get_reviews(only_issues: bool = False) -> dict:
     return {"reviews": run_store.list_reviews(only_issues=only_issues)}

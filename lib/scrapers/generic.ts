@@ -12,25 +12,50 @@
  * Returns null on any failure — the caller then shows the Google-Shopping card
  * price as a last resort.
  */
-import { smartFetch } from "../http";
+import { smartFetch, scraperApiUrl } from "../http";
 import { parsePdpHtml } from "../pdp";
 import { detectPackSize, calculateUnitPrice } from "../pack-detector";
 import { parseVariantSpec } from "../variant-spec";
 import type { ProductData } from "../types";
 
-export async function fetchGenericProduct(url: string): Promise<ProductData | null> {
-  if (!url || !/^https?:\/\//i.test(url)) return null;
-  let html: string;
+/** Fetch a URL's HTML, returning null on any non-OK / error. */
+async function getHtml(url: string, timeout = 12000): Promise<string | null> {
   try {
-    const res = await smartFetch(url, { timeout: 12000, retries: 1 });
+    const res = await smartFetch(url, { timeout, retries: 1 });
     if (!res.ok) return null;
-    html = await res.text();
+    return await res.text();
   } catch {
     return null;
   }
+}
 
-  const pdp = parsePdpHtml(html);
+export async function fetchGenericProduct(url: string): Promise<ProductData | null> {
+  if (!url || /^https?:\/\//i.test(url) === false) return null;
+
+  // 1) Direct fetch + parse (now salvages malformed JSON-LD, OG/microdata price).
+  let html = await getHtml(url);
+  let pdp = html ? parsePdpHtml(html) : null;
+
+  // 2) FALLBACK via ScraperAPI — only when the direct attempt yielded no usable
+  //    product (page blocked datacenter IPs, needs JS, or returned nothing). This
+  //    spends a ScraperAPI credit, so it fires solely on the hard cases.
+  if ((!pdp || !pdp.name || !(pdp.price > 0))) {
+    const viaScraper = scraperApiUrl(url);
+    if (viaScraper) {
+      html = await getHtml(viaScraper, 40000);   // ScraperAPI is slower
+      const sp = html ? parsePdpHtml(html) : null;
+      if (sp && sp.name && sp.price > 0) pdp = sp;
+    }
+  }
+
   if (!pdp || !pdp.name || !(pdp.price > 0)) return null;
+
+  // Currency guard: all our competitors are Indian (gl=in). A page that declares a
+  // NON-INR currency is a foreign storefront — its price isn't comparable (e.g. a
+  // Spanish "Localizador Root ZX" at €/$ that looks like a cheap ₹860). Drop it so
+  // it surfaces as unverified rather than a misleading match. Empty currency =
+  // assume INR (most Indian sites omit it).
+  if (pdp.currency && !/^(INR|RS|₹)/.test(pdp.currency)) return null;
 
   const clean = url.split("?")[0].replace(/\/$/, "");
   const packSize = detectPackSize(pdp.name, pdp.description, url);

@@ -1060,6 +1060,15 @@ function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null
           ${!isDk ? `<button class="fb-btn" title="Save as golden truth"
             onclick="sendGolden('${fbId}', 'correct')">⭐</button>` : ""}
         </div>
+        ${!isDk ? `<div class="cc-row" id="cc-${fbId}" data-payload='${enc(JSON.stringify({
+            product: searchTerm, competitor_id: c.competitor_id,
+            matched_url: c.matched_url, matched_name: c.matched_name }))}'
+            style="margin-top:5px;display:flex;gap:6px;align-items:center;">
+          <button class="fb-btn" title="Correct — remember this match for next time"
+            onclick="confirmCell('${fbId}', true)" style="font-size:11px;">✓ keep</button>
+          <button class="fb-btn" title="Wrong — don't show this competitor for this product next time"
+            onclick="confirmCell('${fbId}', false)" style="font-size:11px;">✗ hide</button>
+        </div>` : ""}
       </div>
     </div>
   </td>`;
@@ -1071,23 +1080,20 @@ let REVIEWS = {};                            // row index → {correct, message}
 let CURRENT_RUN_ID = null;                   // set when reviewing a scheduled run
 // Build the competitor COLUMN list from the data itself — the Google path returns
 // up to 10 dynamic merchants per product, which differ row to row, so columns are
-// the UNION across all rows. Known competitors lead (stable order); new merchants
-// follow in first-seen order. Falls back to the static 4 when nothing is present.
+// the UNION across all rows, in the ORDER Google ranks them (first appearance =
+// Google Shopping rank; for a single search that's exactly Google's order). Falls
+// back to the static 4 when nothing is present (standard /compare path).
 function competitorColumns(results) {
-  const pref = ["pinkblue", "oralkart", "dentmark"];
-  const names = new Map();
-  for (const r of results) for (const c of (r.competitors || [])) {
-    if (!names.has(c.competitor_id)) names.set(c.competitor_id, c.competitor_name || c.competitor_id);
-  }
-  if (!names.size) return COMPETITORS;       // standard /compare path → fixed 4
   const cols = [];
-  for (const id of pref) if (names.has(id)) cols.push([id, names.get(id)]);
+  const seen = new Set();
   for (const r of results) for (const c of (r.competitors || [])) {
     const id = c.competitor_id;
-    if (pref.includes(id)) continue;
-    if (!cols.some(([cid]) => cid === id)) cols.push([id, names.get(id)]);
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      cols.push([id, c.competitor_name || id]);
+    }
   }
-  return cols;
+  return cols.length ? cols : COMPETITORS;
 }
 
 function compareTableHTML(results) {
@@ -1460,6 +1466,34 @@ async function sendFeedback(fbId, wasCorrect) {
   }
 }
 window.sendFeedback = sendFeedback;
+
+// Per-cell confirm → the learned memory (SQLite). ✓ keep remembers this link
+// (reused + re-priced next run); ✗ hide stores a no-match so this competitor
+// stops showing for this product name (kills a flagged/wrong listing).
+async function confirmCell(fbId, correct) {
+  const row = document.getElementById("cc-" + fbId);
+  if (!row) return;
+  let payload;
+  try { payload = JSON.parse(row.getAttribute("data-payload")); }
+  catch { return; }
+  payload.correct = correct;
+  const prev = row.innerHTML;
+  row.innerHTML = `<span style="font-size:11px;color:var(--ink-mute);">saving…</span>`;
+  try {
+    const res = await fetch("/reviews/cell", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error("http " + res.status);
+    row.innerHTML = correct
+      ? `<span style="font-size:11px;color:#0a7d4f;font-weight:600;">✓ remembered</span>`
+      : `<span style="font-size:11px;color:#b04a2f;font-weight:600;">✗ hidden next time</span>`;
+  } catch (e) {
+    row.innerHTML = prev;
+    logLine("confirmCell failed: " + e.message);
+  }
+}
+window.confirmCell = confirmCell;
 
 async function sendGolden(fbId, label) {
   const row = document.getElementById("fb-" + fbId);

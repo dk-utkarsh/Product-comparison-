@@ -16,6 +16,7 @@ export interface PdpData {
   mrp: number;
   image: string;
   inStock: boolean | null; // null = unknown
+  currency: string; // ISO currency from the page (e.g. "INR"); "" if unknown
 }
 
 function stripHtml(s: string): string {
@@ -57,10 +58,22 @@ export function parsePdpHtml(html: string): PdpData | null {
   let product: Record<string, unknown> | null = null;
   $('script[type="application/ld+json"]').each((_, el) => {
     if (product) return;
+    const raw = $(el).text();
     try {
-      product = findProductNode(JSON.parse($(el).text()));
+      product = findProductNode(JSON.parse(raw));
     } catch {
-      /* malformed JSON-LD block — keep scanning */
+      // Salvage the common malformations that void otherwise-good Product JSON-LD:
+      // JavaScript // line comments and /* */ blocks (illegal in JSON, but real
+      // sites ship them — e.g. thedentistshop's `//"name": …`) and trailing commas.
+      try {
+        const fixed = raw
+          .replace(/\/\*[\s\S]*?\*\//g, "")     // /* block */ comments
+          .replace(/^\s*\/\/.*$/gm, "")         // whole-line // comments
+          .replace(/,(\s*[}\]])/g, "$1");       // trailing commas
+        product = findProductNode(JSON.parse(fixed));
+      } catch {
+        /* still malformed — keep scanning other blocks */
+      }
     }
   });
 
@@ -72,6 +85,7 @@ export function parsePdpHtml(html: string): PdpData | null {
   let mrp = 0;
   let image = "";
   let inStock: boolean | null = null;
+  let currency = "";
 
   if (product) {
     const p = product as Record<string, unknown>;
@@ -89,6 +103,7 @@ export function parsePdpHtml(html: string): PdpData | null {
     if (offer) {
       price = num(offer.price ?? offer.lowPrice);
       mrp = num(offer.highPrice) || price;
+      currency = String(offer.priceCurrency ?? "").toUpperCase();
       const avail = String(offer.availability ?? "");
       if (avail) inStock = /InStock/i.test(avail);
     }
@@ -103,7 +118,31 @@ export function parsePdpHtml(html: string): PdpData | null {
       "";
   if (!image) image = $('meta[property="og:image"]').attr("content")?.trim() || "";
   if (!price) price = num($('meta[property="product:price:amount"]').attr("content"));
+  if (!price) price = num($('meta[property="og:price:amount"]').attr("content"));
+  if (!price) price = num($('meta[itemprop="price"]').attr("content"));
+  if (!price) {
+    // microdata: <span itemprop="price" content="…"> or text
+    const el = $('[itemprop="price"]').first();
+    if (el.length) price = num(el.attr("content") || el.text());
+  }
+  if (!currency)
+    currency = (
+      $('meta[property="product:price:currency"]').attr("content") ||
+      $('meta[property="og:price:currency"]').attr("content") ||
+      $('[itemprop="priceCurrency"]').attr("content") ||
+      ""
+    ).toUpperCase();
+  if (!currency) {
+    // No machine-readable currency (e.g. IPG Dental, a EUR site that declares
+    // none). Infer from symbols/codes in the page: ₹/Rs/INR wins (Indian, keep);
+    // otherwise a clear foreign code marks it foreign so the caller can drop it.
+    // "$" alone is deliberately ignored — too ambiguous (USD/AUD/CAD/loose use).
+    if (/₹|\bRs\.?\b|\bINR\b/i.test(html)) currency = "INR";
+    else if (/€|\bEUR\b/.test(html)) currency = "EUR";
+    else if (/£|\bGBP\b/.test(html)) currency = "GBP";
+    else if (/\bAED\b|\bCAD\b|\bAUD\b|\bSGD\b/.test(html)) currency = "FOREIGN";
+  }
 
   if (!name) return null;
-  return { name, description, sku, brand, price, mrp: mrp || price, image, inStock };
+  return { name, description, sku, brand, price, mrp: mrp || price, image, inStock, currency };
 }

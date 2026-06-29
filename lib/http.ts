@@ -64,6 +64,16 @@ function maybeProxy(url: string): string {
   return url;
 }
 
+/** Wrap ANY url to route through ScraperAPI (datacenter-IP / anti-bot bypass).
+ *  Returns null when no key is configured. Used as an explicit FALLBACK (not the
+ *  default) so credits are spent only when a direct fetch fails. */
+export function scraperApiUrl(url: string, render = false): string | null {
+  const key = process.env.SCRAPER_API_KEY;
+  if (!key) return null;
+  const r = render ? "&render=true" : "";
+  return `https://api.scraperapi.com/?api_key=${key}&url=${encodeURIComponent(url)}&keep_headers=true${r}`;
+}
+
 export interface SmartFetchOptions {
   timeout?: number;
   retries?: number;

@@ -143,6 +143,37 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-29 (pm-2) — Verify unreachable PDPs + foreign-site filter + per-cell action + Google-order columns
+
+Follow-ups driven by real cases (thedentistshop "couldn't verify", IPG Dental foreign listing).
+
+- **Verify previously-unreachable competitor PDPs (general, any merchant):**
+  - `lib/pdp.ts` `parsePdpHtml` now SALVAGES malformed JSON-LD (strips JS `//` and
+    `/* */` comments + trailing commas) — recovers thedentistshop (its Product
+    block had a `//` comment → ₹5100 now reads, FREE, no API). Added price
+    fallbacks: `og:price:amount`, `itemprop=price` (content/text).
+  - `lib/scrapers/generic.ts`: ScraperAPI FALLBACK — if the direct fetch yields no
+    usable product (blocked datacenter IP / needs JS), retry via ScraperAPI
+    (`scraperApiUrl` in `lib/http.ts`). Fires only on hard cases to save credits.
+  - ScraperAPI key (root .env) refreshed to the working one (308 credits left,
+    resets 2026-07-17) but KEPT COMMENTED in dev — enabling it routes pinkblue via
+    ScraperAPI which fails locally + burns credits; it's a PROD/datacenter thing.
+    The salvage fix means thedentistshop works locally without it.
+- **Foreign-site filter:** `pdp.ts` captures `priceCurrency`; when absent it infers
+  from page symbols (₹/Rs/INR → INR keep; €/£/EUR/GBP/AED/CAD… → foreign). `generic
+  .ts` drops any non-INR page. Kills IPG Dental's EUR "Localizador Root ZX Mini"
+  (it declared no currency, html lang faked en-US, but the page is € — now dropped,
+  no bogus ₹860). All competitors are Indian (gl=in), so this is safe.
+- **Per-cell action → learned memory:** every competitor cell now has **✓ keep**
+  (remember this link) and **✗ hide** (store a no-match → competitor stops showing
+  for this product name). New endpoint `POST /reviews/cell`; UI `confirmCell`.
+  Verified: ✗ hide on a wrong listing → next run shows "Confirmed: not sold here".
+- **Competitor columns now in GOOGLE'S top-10 order** (`competitorColumns`): union
+  across rows by first-appearance = Google Shopping rank (single search = exact
+  Google order), instead of forcing the baseline 3 first.
+
+Reviewer to run the regression suite. (.env is gitignored — ScraperAPI key not committed.)
+
 ### 2026-06-29 (pm) — Learning loop: confirmed-match memory + auto-flag review
 
 Built the #4+#5 plan the product owner asked for: flag what needs a human look,
