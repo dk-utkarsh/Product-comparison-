@@ -143,6 +143,56 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-29 (pm-6) — Read more pages + brand-by-description + Extra-flag + spec-from-description
+
+Long debugging session on real misses (Ketac Molar, GC Gold Label 9, sterilization
+reels). Theme: **the right info exists on competitor pages, just in different
+places** — title, description, variant list, spec table. Shipped (all pushed):
+
+- **Pack/dimension sanity**: "8 Tips Free" ≠ pack-of-8 (freebie strip); "150 MM x
+  200 M" ≠ pack-of-200 (the `x`-pack pattern now excludes m/mtr/meter — a bare
+  "200" was tanking the per-unit price and false-rejecting reels). Recovered
+  PinkBlue + Ayushi reels.
+- **JSON-LD extraction**: salvage now also strips raw control chars (dentganga);
+  accept full-URL `@type` ("http://schema.org/Product", hospitalstore); OG /
+  microdata / `<h1>` fallbacks.
+- **Brand when the maker is DROPPED** (`gates._brand_match`): accept when the
+  competitor leads with DK's product-LINE word ("Ketac Molar" for "3M ESPE Ketac
+  Molar") OR the brand is in the DESCRIPTION intro ("…by 3M ESPE"). Guarded vs
+  "compatible with X" and genuinely different brands. Recovered dentalbucket.
+- **"Extra"/formulation difference FLAGS, doesn't HIDE** (`structured.py`): a
+  competitor selling the same item as "HS / High Strength" (= GC's Extra line) or
+  omitting "Extra" is now BORDERLINE+⚠, not rejected. Recovered 4 GC Gold Label 9
+  sellers.
+- **Spec parsed from name + DESCRIPTION** (`generic.ts`): powder g / liquid ml /
+  pack now read from the body's first 300 chars too, so terse titles ("GC 9 big")
+  pick up specs in the description.
+- **Currency/foreign filter** (non-INR dropped); **WooCommerce variation
+  extraction** (Ayushi reel sizes); **single-letter (UDS E≠P) + short alnum (V2)
+  model codes**; **tooth-position** contrast; **near-name not hard-rejected on a
+  price gap**.
+- **ScraperAPI key refreshed** to a fresh 5,000-credit key (root .env, gitignored).
+- **`docs/MATCHING_EDGE_CASES.md`** created — living catalog of all ~30 cases.
+
+State established (the matching pipeline now): brand by name → product-line →
+description; then numerical/spec matching across name + description vs DK; price
+only shown when page-verified; borderline → ⚠ flag; ✓keep/✗hide learns.
+
+NEXT (tomorrow):
+1. **Extraction gaps** (per-platform, addable): Magento configurable variants
+   (`jsonConfig`) so medidentalpro picks "Big Pack (Extra)"; HTML spec-table parse
+   for jaypee (price/specs in a table, not JSON-LD); amazon is anti-bot (hard).
+2. **Semantic synonyms** ("Gold Label 9 = Fuji 9 = Type 9", "ART ≠ plain") — rules
+   can only ⚠-flag; the **LLM judge/extractor** (already wired, `llm_judge.py`) is
+   the general fix — needs an Anthropic API key (Max plan ≠ API).
+3. **Production parity**: droplet `.env` needs `SERPAPI_KEY`, `SERP_ENABLED=1`,
+   `SCRAPER_API_KEY=49b12c27…` (new key), and **`PROXY_PINKBLUE=1`** (datacenter IP
+   blocks pinkblue) — then verify on http://209.38.120.154:8000.
+4. **Brand-drift on brand-LESS queries** (DK→Waldent vs market→Oro) — decide the DK
+   anchor behaviour.
+5. Reviewer to run the regression suite. **Credits:** SerpAPI ~53/250 left;
+   ScraperAPI 5,000 (fresh).
+
 ### 2026-06-29 (pm-5) — Sub-variant on variable products + size tokenization + UI declutter
 
 Triggered by Ayushi Density sterilization reel (wrong size price) + UI feedback.
