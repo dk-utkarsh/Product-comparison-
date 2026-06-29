@@ -267,7 +267,15 @@ def structured_match(search: ProductRecord, candidate: ProductRecord) -> Structu
     kind_clash = _kind_mismatch(s_norm, c_norm)
     corroborated = compared >= 1 or spec_match in (
         SpecMatch.EXACT.value, SpecMatch.SAME_TIER.value)
-    if (kind_clash and not in_band) or (extreme_price and not corroborated):
+    # A near-exact NAME match (same brand, line, size tokens) is the same product
+    # even when the price/unit band fails — that gap is almost always a pack / FORM
+    # / bundled-freebie difference (a 25 Mtr reel vs a single, a mis-parsed "8 Tips
+    # Free" pack, a competitor's bundle), NOT a different product. Computed here so
+    # the hard-reject below can spare these and let the displayed price Δ + the ⚠
+    # review flag do their job. WEAK-name lookalikes (low fuzz AND low token) are
+    # still hard-rejected on the price band.
+    near_exact = fzr >= settings.confirm_fuzz or tok >= 0.60
+    if (kind_clash and not in_band) or (extreme_price and not corroborated and not near_exact):
         why = ("container vs kit/bundle" if kind_clash
                else f"per-unit price {unit_ratio:.1f}x apart")
         reasons.append(f"different product: {why}")
@@ -277,13 +285,6 @@ def structured_match(search: ProductRecord, candidate: ProductRecord) -> Structu
 
     strong_line = cosine >= settings.confirm_cosine or fzr >= settings.confirm_fuzz
     brand_ok = features.brand_match is not False
-    # A near-exact NAME match (same brand, same product line, same size tokens)
-    # is the same product even when the unit-price band fails — that gap is a
-    # pack/FORM difference (a 25 Mtr reel vs a single pack, or a mis-parsed pack
-    # size), not a different product. So a strong name match overrides the price
-    # band; the displayed price Δ then does its job. The band still vetoes
-    # WEAK-name lookalikes ("compressor valve" vs "air compressor").
-    near_exact = fzr >= settings.confirm_fuzz or tok >= 0.60
     price_ok = in_band or near_exact
     # Thin data (no description/packaging on a side) normally blocks CONFIRMED,
     # but near-identical names with an agreeing variant attr are safe anyway.

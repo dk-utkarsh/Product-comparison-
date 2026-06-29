@@ -47,7 +47,12 @@ function findProductNode(node: unknown): Record<string, unknown> | null {
   }
   const obj = node as Record<string, unknown>;
   const t = obj["@type"];
-  if (t === "Product" || (Array.isArray(t) && t.includes("Product"))) return obj;
+  // Accept "Product" AND the full-URL form "http(s)://schema.org/Product" (and
+  // subtypes like "IndividualProduct") — many sites (e.g. hospitalstore.com) emit
+  // the URL form, which we'd otherwise silently skip.
+  const isProduct = (x: unknown): boolean =>
+    typeof x === "string" && /(^|\/)(Individual)?Product$/i.test(x);
+  if (isProduct(t) || (Array.isArray(t) && t.some(isProduct))) return obj;
   if (obj["@graph"]) return findProductNode(obj["@graph"]);
   return null;
 }

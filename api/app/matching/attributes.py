@@ -38,6 +38,15 @@ _MODEL_RE = re.compile(r"\b([a-z]{1,5}-?\d{2,5}[a-z]?)\b", re.IGNORECASE)
 # guard drops common word+digit tokens that aren't codes.
 _SKU_RE = re.compile(r"\b([a-z]{3,5})(\d{1,4}[a-z]?)\b", re.IGNORECASE)
 _SKU_STOP = {"type", "size", "pack", "pair", "step", "size", "grit", "part"}
+# SHORT alphanumeric model codes that fall through the gap between _MODEL_RE
+# (needs ≥2 digits) and _SKU_RE (needs ≥3 letters): "V2", "E2", "X1", "G4", "P3"
+# — the distinguishing tail of names like "DTE V2", "X-Smart" lines. LETTER-LED
+# (1–2 letters then 1–2 digits) so digit-led UNITS ("5g", "10ml", "8mm", "35c")
+# never match. A different short code (V2 vs V3, or vs a single model letter) is a
+# different model and must split otherwise near-identical names.
+_ALNUM_CODE_RE = re.compile(r"\b([a-z]{1,2}\d{1,2})\b", re.IGNORECASE)
+# unit-ish letter-led tokens that are measurements, not model codes
+_ALNUM_CODE_STOP = {"d2", "d3", "h2", "o2", "co2", "no2"}
 
 # Colour variant words. Dental products (die stones, gypsum, denture bases,
 # elastics, articulating papers, retraction caps…) commonly ship the same item in
@@ -232,6 +241,11 @@ def extract_attributes(name: str) -> Attributes:
         f"ml_{m.group(0).lower()}"
         for m in _MODEL_LETTER_RE.finditer(name)
         if m.group(0) not in _MODEL_LETTER_STOP
+    ]
+    model_codes += [
+        m.group(1).lower()
+        for m in _ALNUM_CODE_RE.finditer(name)
+        if m.group(1).lower() not in _ALNUM_CODE_STOP
     ]
 
     viscosity: str | None = None

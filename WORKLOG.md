@@ -143,6 +143,37 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-29 (pm-4) — Freebie-pack false-reject + JSON-LD @type-URL + short model codes + near-name softening
+
+Triggered by "Woodpecker UDS E LED (8 Tips Free)": Dental Bucket / IDS Denmed
+wrongly "different", Hospital Store "couldn't verify", UDS-E≠DTE-V2 only borderline.
+
+- **Freebie miscounted as pack** (`lib/pack-detector.ts`): "8 Tips **Free**" was read
+  as pack=8 → DK's per-unit price looked 8x off → false reject of the SAME scaler.
+  Now strips freebie phrases ("N <unit> free", "free N <unit>", "N free <unit>")
+  before counting. Real packs still count ("Pack of 100"→100). Fixes Dental Bucket
+  + IDS Denmed (→ ₹15,500, match).
+- **JSON-LD @type full-URL form** (`lib/pdp.ts`): `findProductNode` only matched
+  `"Product"`, silently skipping `"http(s)://schema.org/Product"` /
+  `"IndividualProduct"`. A whole class of sites (e.g. hospitalstore.com) was
+  unreadable. Now matched → Hospital Store reads ₹18,900 (via ScraperAPI proxy
+  that bypasses its 403 + this parse fix).
+- **Short alphanumeric model codes** (`attributes.py`): "V2" (1 letter+1 digit) fell
+  through `_MODEL_RE` (needs ≥2 digits) and `_SKU_RE` (needs ≥3 letters). Added
+  `_ALNUM_CODE_RE` (letter-led `[a-z]{1,2}\d{1,2}` so units "5g"/"10ml" never match).
+  Now "Woodpecker UDS-E LED" ≠ "Woodpecker DTE **V2**" (REJECTED, was borderline);
+  bonus: shade A2≠A3.
+- **Near-identical name no longer hard-rejected on price gap** (`structured.py`): the
+  extreme-unit-price reject now spares a near-exact name match (fuzz≥confirm or
+  token≥0.60) — that gap is a pack/form/bundle difference, not a different product;
+  it's shown + ⚠-flagged instead. Weak-name lookalikes still rejected.
+
+Net for the Woodpecker product: verified prices went 2 → 6 (Dental Bucket, IDS,
+Hospital Store, PinkBlue added). Known limit: pure-SPA pages with NO structured
+price (dentalstores.in — price is plain-text MRP) stay "couldn't verify" (no wrong
+price); reading those needs the AI extractor (parked — no Anthropic key). Reviewer
+to run the regression suite.
+
 ### 2026-06-29 (pm-3) — Single-letter model discrimination (UDS E≠P) + ScraperAPI decoupled
 
 Triggered by "Woodpecker UDS E LED" matching UDS-P listings.

@@ -14,7 +14,15 @@ export function detectPackSize(name: string, description?: string, url?: string)
   // Check name + description + URL for pack info
   // URL often contains "pack-of-12" in the slug
   const urlClean = url ? url.replace(/[-_/]/g, " ") : "";
-  const text = `${name} ${description || ""} ${urlClean}`.toLowerCase();
+  // Bundled FREEBIES are NOT the pack quantity: "8 Tips Free", "with 8 free tips",
+  // "free 8 tips" = ONE product shipped with bonus items, not a pack of 8. Strip
+  // those phrases first so "Scaler (8 Tips Free)" reads as 1, not 8 — otherwise the
+  // same scaler listed without the freebie note looks like a different pack size.
+  const text = `${name} ${description || ""} ${urlClean}`
+    .toLowerCase()
+    .replace(/\b\d+\s+[a-z]+\s+free\b/g, " ") // "8 tips free"
+    .replace(/\bfree\s+\d+\s+[a-z]+\b/g, " ") // "free 8 tips"
+    .replace(/\b\d+\s+free\s+[a-z]+\b/g, " "); // "8 free tips" / "with 8 free tips"
 
   // Also check for "Net Quantity X N" pattern (common on Indian sites)
   const netQtyMatch = text.match(/net\s*(?:quantity|qty)\s*[:\s]*(\d+)\s*n?\b/i);
