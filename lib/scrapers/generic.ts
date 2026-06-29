@@ -121,7 +121,11 @@ export async function fetchGenericProduct(url: string): Promise<ProductData | nu
     packSize,
     unitPrice: calculateUnitPrice(price, packSize),
     sku: pdp.sku || undefined,
-    variantSpec: parseVariantSpec(pdp.name),
+    // Parse the size/composition spec from the NAME + the start of the DESCRIPTION,
+    // so a terse title ("GC 9 big") still picks up specs stated in the body
+    // ("Powder: 15g, Liquid: …"). First 300 chars only — the product's own spec
+    // block — to avoid marketing-copy numbers deeper in the text.
+    variantSpec: parseVariantSpec(`${pdp.name} ${(pdp.description || "").slice(0, 300)}`),
     variants: variants.length ? variants : undefined,
   };
 }
