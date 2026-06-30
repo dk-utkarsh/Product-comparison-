@@ -574,6 +574,38 @@
     .pcard-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
     .pcard-empty { color: var(--ink-mute); font-size: 13px; padding: 6px 0; }
     .pcard-detail { margin-top: 14px; border-top: 1px dashed var(--rule-2); padding-top: 14px; }
+
+    /* ── Scheduled-run list cards ── */
+    .run-list { display: flex; flex-direction: column; gap: 10px; }
+    .run-card {
+      display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
+      background: var(--paper); border: 1px solid var(--rule); border-radius: 12px;
+      padding: 14px 16px 14px 22px; position: relative; overflow: hidden;
+      transition: box-shadow .15s ease, transform .15s ease, border-color .15s ease;
+    }
+    .run-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--emerald); }
+    .run-card.running::before { background: var(--brand); }
+    .run-card.error::before { background: var(--rust); }
+    .run-card:hover { box-shadow: 0 8px 22px rgba(16,18,23,.08); transform: translateY(-1px); border-color: var(--rule-2); }
+    .run-id { font-weight: 750; color: var(--ink-mute); font-size: 13px; min-width: 44px; font-variant-numeric: tabular-nums; }
+    .run-main { flex: 1 1 220px; min-width: 180px; cursor: pointer; }
+    .run-time { font-weight: 650; font-size: 14px; color: var(--ink); letter-spacing: -.01em; }
+    .run-trigger { margin-top: 5px; display: flex; gap: 7px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--ink-mute); }
+    .g-chip { background: var(--brand); color: #fff; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px; }
+    .run-metric { text-align: center; min-width: 62px; }
+    .run-metric .l { font-size: 10px; color: var(--ink-mute); text-transform: uppercase; letter-spacing: .05em; margin-top: 5px; }
+    .run-skus .v { font-variant-numeric: tabular-nums; font-weight: 650; font-size: 13px; color: var(--ink); }
+    .run-bar { height: 5px; border-radius: 999px; background: var(--rule); margin: 5px auto 0; width: 62px; overflow: hidden; }
+    .run-bar span { display: block; height: 100%; background: var(--emerald); border-radius: 999px; }
+    .run-dash { color: var(--rule-2); font-weight: 700; }
+    .run-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+    .run-act {
+      font-size: 12px; padding: 5px 10px; border-radius: 7px; border: 1px solid var(--rule);
+      color: var(--ink-mute); text-decoration: none; white-space: nowrap; transition: all .12s ease;
+    }
+    .run-act:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-tint); }
+    .run-act.danger:hover { border-color: var(--rust); color: var(--rust); background: var(--rust-tint); }
+    @media (max-width: 720px) { .run-actions { margin-left: 0; width: 100%; } .run-card { gap: 14px; } }
   </style>
 </head>
 <body>
@@ -1767,33 +1799,40 @@ async function loadRuns() {
   }
 }
 
-function runRowHTML(run) {
-  const badge = run.status === "done" ? `<span class="pill emerald">done</span>`
+function runCardHTML(run) {
+  const statusCls = run.status === "running" ? "running" : run.status === "done" ? "" : "error";
+  const statusPill = run.status === "done" ? `<span class="pill emerald">done</span>`
     : run.status === "running" ? `<span class="pill">running</span>`
     : `<span class="pill rust">${enc(run.status)}</span>`;
   const acc = run.review && run.review.reviewed
     ? `<span class="pill emerald" title="${run.review.correct}/${run.review.reviewed} rows reviewed correct">${run.review.accuracy}%</span>`
-    : `<span style="color:var(--ink-mute);font-size:12px;" title="Open this run and review its rows to record accuracy">—</span>`;
-  const src = run.source_run_id ? ` <span style="color:var(--ink-mute);font-size:11px;">(of #${run.source_run_id})</span>` : "";
+    : `<span class="run-dash" title="Open this run and review its rows to record accuracy">—</span>`;
   const isGoogle = (run.trigger || "").includes("google");
-  const trigBase = (run.trigger || "").replace("-google", "");
-  const trigCell = `${isGoogle ? `<span class="pill" style="background:var(--accent,#0071e3);color:#fff;font-size:11px;">🔍 Google</span> ` : ""}<span style="font-size:13px;">${enc(trigBase)}</span>${src}`;
+  const trigBase = (run.trigger || "").replace("-google", "") || "scheduled";
+  const src = run.source_run_id ? ` <span style="opacity:.75;">(of #${run.source_run_id})</span>` : "";
+  const pct = run.sku_count ? Math.round(100 * run.done_count / run.sku_count) : 0;
   return `
-    <tr style="${isGoogle ? "box-shadow:inset 3px 0 0 var(--accent,#0071e3);" : ""}">
-      <td class="col-num">#${run.id}</td>
-      <td style="cursor:pointer;" onclick="openRun(${run.id})"><div class="product-name">${fmtRunTime(run.started_at)}</div></td>
-      <td>${trigCell}</td>
-      <td>${badge}</td>
-      <td class="mono">${run.done_count}/${run.sku_count}</td>
-      <td>${acc}</td>
-      <td style="white-space:nowrap;">
-        <a href="#" class="cell-link" onclick="openRun(${run.id});return false;">view →</a>
-        &nbsp;·&nbsp;<a href="#" class="cell-link" onclick="rerunRun(${run.id}, false);return false;" title="Re-run the same products (standard search)">↻ re-run</a>
-        &nbsp;·&nbsp;<a href="#" class="cell-link" onclick="rerunRun(${run.id}, true);return false;" title="Re-run the same products via Google (SerpAPI) — capped 15 products">🔍 Google</a>
-        ${run.source_run_id ? `&nbsp;·&nbsp;<a href="#" class="cell-link" style="font-weight:600;" onclick="compareRuns(${run.id});return false;" title="Compare this re-run against its source run #${run.source_run_id}">⇄ compare</a>` : ""}
-        &nbsp;·&nbsp;<a href="#" class="cell-link" style="color:var(--rust,#b04a2f);" onclick="deleteRun(${run.id});return false;" title="Permanently delete this run">🗑 delete</a>
-      </td>
-    </tr>`;
+    <div class="run-card ${statusCls}">
+      <div class="run-id">#${run.id}</div>
+      <div class="run-main" onclick="openRun(${run.id})" title="Open this run">
+        <div class="run-time">${fmtRunTime(run.started_at)}</div>
+        <div class="run-trigger">${isGoogle ? `<span class="g-chip">🔍 Google</span>` : ""}<span>${enc(trigBase)}${src}</span></div>
+      </div>
+      <div class="run-metric">${statusPill}<div class="l">status</div></div>
+      <div class="run-metric run-skus">
+        <div class="v">${run.done_count}/${run.sku_count}</div>
+        <div class="run-bar"><span style="width:${pct}%"></span></div>
+        <div class="l">SKUs</div>
+      </div>
+      <div class="run-metric">${acc}<div class="l">accuracy</div></div>
+      <div class="run-actions">
+        <a href="#" class="run-act" onclick="openRun(${run.id});return false;">view →</a>
+        <a href="#" class="run-act" onclick="rerunRun(${run.id}, false);return false;" title="Re-run the same products (standard search)">↻ re-run</a>
+        <a href="#" class="run-act" onclick="rerunRun(${run.id}, true);return false;" title="Re-run via Google (SerpAPI) — capped 15 products">🔍 Google</a>
+        ${run.source_run_id ? `<a href="#" class="run-act" onclick="compareRuns(${run.id});return false;" title="Compare vs source run #${run.source_run_id}">⇄ compare</a>` : ""}
+        <a href="#" class="run-act danger" onclick="deleteRun(${run.id});return false;" title="Permanently delete this run">🗑</a>
+      </div>
+    </div>`;
 }
 
 function renderRunsPage() {
@@ -1804,20 +1843,14 @@ function renderRunsPage() {
   const pages = Math.ceil(RUNS_ALL.length / RUNS_PER_PAGE);
   RUNS_PAGE = Math.min(Math.max(0, RUNS_PAGE), pages - 1);
   const start = RUNS_PAGE * RUNS_PER_PAGE;
-  const rows = RUNS_ALL.slice(start, start + RUNS_PER_PAGE).map(runRowHTML).join("");
+  const rows = RUNS_ALL.slice(start, start + RUNS_PER_PAGE).map(runCardHTML).join("");
   const pager = pages > 1 ? `
     <div style="display:flex;gap:10px;align-items:center;justify-content:center;margin-top:12px;font-size:13px;">
       <button class="btn-ghost" style="padding:6px 12px;" ${RUNS_PAGE === 0 ? "disabled" : ""} onclick="gotoRunsPage(${RUNS_PAGE - 1})">← Prev</button>
       <span>Page <strong>${RUNS_PAGE + 1}</strong> of ${pages} <span style="color:var(--ink-mute);">· ${RUNS_ALL.length} runs</span></span>
       <button class="btn-ghost" style="padding:6px 12px;" ${RUNS_PAGE >= pages - 1 ? "disabled" : ""} onclick="gotoRunsPage(${RUNS_PAGE + 1})">Next →</button>
     </div>` : "";
-  $("runs-list").innerHTML = `
-    <div style="overflow-x:auto;">
-      <table class="compare-table">
-        <thead><tr><th>#</th><th>Run time</th><th>Trigger</th><th>Status</th><th>SKUs</th><th>Accuracy</th><th></th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>${pager}`;
+  $("runs-list").innerHTML = `<div class="run-list">${rows}</div>${pager}`;
 }
 function gotoRunsPage(n) { RUNS_PAGE = n; renderRunsPage(); }
 window.gotoRunsPage = gotoRunsPage;
