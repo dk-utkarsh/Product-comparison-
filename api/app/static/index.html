@@ -527,31 +527,35 @@
     .pcards { display: flex; flex-direction: column; gap: 16px; }
     .pcard {
       background: var(--paper); border: 1px solid var(--rule); border-radius: 14px;
-      padding: 18px 20px; box-shadow: 0 1px 2px rgba(16,18,23,.04);
+      padding: 18px 20px 18px 24px; box-shadow: 0 1px 2px rgba(16,18,23,.04);
       transition: box-shadow .16s ease, transform .16s ease;
+      position: relative; overflow: hidden;
     }
-    .pcard:hover { box-shadow: 0 8px 24px rgba(16,18,23,.09); transform: translateY(-1px); }
+    .pcard::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: var(--rule-2); }
+    .pcard.pos-cheapest::before { background: var(--emerald); }
+    .pcard.pos-mid::before { background: #f59e0b; }
+    .pcard.pos-highest::before { background: var(--rust); }
+    .pcard:hover { box-shadow: 0 10px 28px rgba(16,18,23,.10); transform: translateY(-2px); }
     .pcard-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
     .pcard-title { font-size: 15px; font-weight: 650; color: var(--ink); letter-spacing: -.01em; line-height: 1.32; max-width: 62ch; }
     .pcard-idx { color: var(--ink-mute); font-weight: 700; font-size: 12px; margin-right: 8px; }
     .pcard-rv { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
     .pcard-dk { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 14px 0 2px; }
-    .pcard-dk .dk-price { font-size: 27px; font-weight: 750; color: var(--brand-deep); letter-spacing: -.02em; line-height: 1; }
+    .pcard-dk .dk-price { font-size: 32px; font-weight: 800; color: var(--brand-deep); letter-spacing: -.02em; line-height: 1; }
     .pcard-dk .dk-lbl { font-size: 11px; color: var(--ink-mute); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
     .pcard-dk .dk-name { font-size: 12px; color: var(--ink-mute); }
 
-    .pbar { margin: 16px 0 2px; }
-    .pbar-track {
-      position: relative; height: 8px; border-radius: 999px;
-      background: linear-gradient(90deg, var(--emerald-tint), #fef3c7 52%, var(--rust-tint));
+    /* Plain-language insight banner (replaces the old low/high bar) */
+    .pcard-verdict {
+      display: flex; align-items: center; gap: 11px; margin: 15px 0 2px;
+      padding: 12px 15px; border-radius: 11px; font-size: 14px; font-weight: 550; line-height: 1.4;
     }
-    .pbar-marker {
-      position: absolute; top: 50%; width: 15px; height: 15px; border-radius: 50%;
-      background: var(--brand); border: 2.5px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.28);
-      transform: translate(-50%, -50%);
-    }
-    .pbar-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-mute); margin-top: 7px; }
-    .pbar-ends b { color: var(--ink); font-weight: 650; }
+    .pcard-verdict .vicon { font-size: 20px; line-height: 1; flex-shrink: 0; }
+    .pcard-verdict .vmoney { font-weight: 800; }
+    .pcard-verdict.good { background: var(--emerald-tint); color: #14532d; }
+    .pcard-verdict.warn { background: #fef3c7; color: #854d0e; }
+    .pcard-verdict.bad  { background: var(--rust-tint); color: #7f1d1d; }
+    .pcard-verdict.neutral { background: var(--canvas); color: var(--ink-mute); font-weight: 500; }
 
     .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(116px, 1fr)); gap: 10px; margin: 16px 0 4px; }
     .kpi { background: var(--canvas); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px; }
@@ -570,6 +574,8 @@
     .chip.cheap b { color: #14532d; }
     .chip.dear { background: var(--rust-tint); border-color: transparent; color: #7f1d1d; }
     .chip.dear b { color: #7f1d1d; }
+    .chip.best { background: #fff7ed; border: 1px solid #f59e0b; color: #92400e; font-weight: 650; box-shadow: 0 0 0 1px #fcd34d inset; }
+    .chip.best b { color: #92400e; }
 
     .pcard-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
     .pcard-empty { color: var(--ink-mute); font-size: 13px; padding: 6px 0; }
@@ -1288,17 +1294,15 @@ function productMetrics(r) {
   return m;
 }
 
-function priceBarHTML(m) {
-  const pct = m.dkPct == null ? 50 : m.dkPct;
-  return `
-    <div class="pbar">
-      <div class="pbar-track"><div class="pbar-marker" style="left:${pct}%" title="DK ${fmtMoney(m.dk)}"></div></div>
-      <div class="pbar-ends">
-        <span>low <b>${fmtMoney(m.minC)}</b></span>
-        <span>DK <b>${fmtMoney(m.dk)}</b></span>
-        <span><b>${fmtMoney(m.maxC)}</b> high</span>
-      </div>
-    </div>`;
+function productVerdictHTML(m, dkPrice) {
+  if (!m.n) return `<div class="pcard-verdict neutral"><span class="vicon">🔍</span><span>No verified competitor match for this product yet.</span></div>`;
+  if (dkPrice == null) return `<div class="pcard-verdict neutral"><span class="vicon">ℹ️</span><span>Dentalkart price not found — can't position it against competitors.</span></div>`;
+  const cheapest = enc(m.cheapest.name);
+  if (m.position === "cheapest")
+    return `<div class="pcard-verdict good"><span class="vicon">🏆</span><span>Dentalkart is the <b>cheapest</b> — beats all ${m.n} competitor${m.n > 1 ? "s" : ""}.</span></div>`;
+  if (m.position === "highest")
+    return `<div class="pcard-verdict bad"><span class="vicon">⚠️</span><span>Dentalkart is the <b>most expensive</b>. Cheapest is <b>${cheapest}</b> at <span class="vmoney">${fmtMoney(m.minC)}</span> — <span class="vmoney">${fmtMoney(m.save)}</span> below DK.</span></div>`;
+  return `<div class="pcard-verdict warn"><span class="vicon">💰</span><span><b>${m.beat}</b> of ${m.n} competitors undercut DK. Cheapest is <b>${cheapest}</b> at <span class="vmoney">${fmtMoney(m.minC)}</span> — <span class="vmoney">${fmtMoney(m.save)}</span> below DK.</span></div>`;
 }
 
 function productCardHTML(r, i) {
@@ -1306,6 +1310,7 @@ function productCardHTML(r, i) {
   const dkPrice = r.dentalkart_match?.matched_price ?? null;
   const m = productMetrics(r);
   const hasData = m.n > 0 && dkPrice != null;
+  const posClass = hasData ? `pos-${m.position}` : "";
 
   const posPill = !m.n ? ``
     : dkPrice == null ? `<span class="pill">no DK price</span>`
@@ -1314,7 +1319,6 @@ function productCardHTML(r, i) {
     : `<span class="pill">DK mid-priced</span>`;
 
   const body = hasData ? `
-    ${priceBarHTML(m)}
     <div class="kpis">
       <div class="kpi"><div class="kpi-num">${fmtMoney(m.minC)}</div><div class="kpi-lbl">lowest · ${enc(m.cheapest.name)}</div></div>
       <div class="kpi"><div class="kpi-num">${m.beat}/${m.n}</div><div class="kpi-lbl">cheaper than DK</div></div>
@@ -1322,15 +1326,15 @@ function productCardHTML(r, i) {
       <div class="kpi ${m.headroom > 0 ? "up" : ""}"><div class="kpi-num">${m.headroom > 0 ? "+" + fmtMoney(m.headroom) : "—"}</div><div class="kpi-lbl">raise headroom</div></div>
     </div>
     <div class="chips">
-      ${m.comps.map((c) => {
-        const cls = dkPrice != null && c.price < dkPrice ? "cheap" : dkPrice != null && c.price > dkPrice ? "dear" : "";
-        return `<span class="chip ${cls}" title="${enc(c.name)}">${enc(c.name)}<b>${fmtMoney(c.price)}</b></span>`;
+      ${m.comps.map((c, idx) => {
+        const isBest = idx === 0 && c.price < dkPrice;     // cheapest competitor that undercuts DK
+        const cls = isBest ? "best" : c.price < dkPrice ? "cheap" : c.price > dkPrice ? "dear" : "";
+        return `<span class="chip ${cls}" title="${enc(c.name)}">${isBest ? "⭐ " : ""}${enc(c.name)}<b>${fmtMoney(c.price)}</b></span>`;
       }).join("")}
-    </div>`
-    : `<div class="pcard-empty">${dkPrice == null ? "Dentalkart price not found for this product." : "No verified competitor match for this product."}</div>`;
+    </div>` : "";
 
   return `
-    <div class="pcard">
+    <div class="pcard ${posClass}">
       <div class="pcard-head">
         <div class="pcard-title"><span class="pcard-idx">#${i + 1}</span>${enc(searchTerm)}</div>
         <div class="pcard-rv">
@@ -1346,6 +1350,7 @@ function productCardHTML(r, i) {
         <span class="dk-price">${fmtMoney(dkPrice)}</span>
         ${posPill}
       </div>
+      ${productVerdictHTML(m, dkPrice)}
       ${body}
       <textarea id="rv-msg-${i}" placeholder="What's wrong / how to improve…"
         style="display:none;width:100%;margin-top:10px;font-size:12px;min-height:48px;"></textarea>
