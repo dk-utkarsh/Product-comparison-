@@ -78,6 +78,26 @@ _GENERIC_NOUNS: frozenset[str] = frozenset({
     "tube", "tubes", "jar", "jars", "syringe", "syringes",
 })
 
+# Generic dental INSTRUMENT / PRODUCT-TYPE words — every brand makes these, so a
+# shared one is NOT evidence of the same brand. Used to stop the "competitor leads
+# with the product-line word" exception from firing on a generic type: "Gracey
+# Curette" shares "gracey" with a "Julldent … Gracey Curette" but is NOT a Julldent
+# product. (Distinctive coined product lines like "Ketac"/"Fuji" are NOT in here, so
+# those still pass.) Includes eponymous-but-now-generic designs (gracey, langer…).
+_GENERIC_TYPES: frozenset[str] = frozenset({
+    "curette", "curettes", "scaler", "scalers", "forceps", "probe", "probes",
+    "explorer", "explorers", "elevator", "elevators", "mirror", "mirrors",
+    "tweezer", "tweezers", "scissor", "scissors", "plier", "pliers", "chisel",
+    "chisels", "condenser", "condensers", "burnisher", "burnishers", "spatula",
+    "spatulas", "excavator", "excavators", "carver", "carvers", "applicator",
+    "applicators", "sickle", "hoe", "file", "files", "reamer", "reamers",
+    "spreader", "spreaders", "plugger", "pluggers", "retractor", "retractors",
+    "separator", "separators", "scalpel", "needle", "needles", "blade", "blades",
+    "cannula", "handpiece", "handpieces", "instrument", "instruments", "luxator",
+    "periosteal", "osteotome", "raspatory", "gracey", "langer", "mccall",
+    "columbia", "nabers", "barnhart", "morse", "goldman",
+})
+
 
 def _shared_prefix(search: str, found: str) -> set[str]:
     """The leading run of identical words — the brand + product-line zone, which
@@ -238,7 +258,8 @@ def _brand_match(a: Attributes, search: str, found: str, found_desc: str = "") -
     # different brand ("GDC …") whose token is NOT in the search still fails.
     fb = extract_brand(found)
     if (fb and len(fb) >= 4 and fb != a.brand
-            and fb not in _GENERIC_NOUNS and _word_boundary(search, fb)):
+            and fb not in _GENERIC_NOUNS and fb not in _GENERIC_TYPES
+            and _word_boundary(search, fb)):
         return True
     # The competitor's TITLE may omit the brand while its DESCRIPTION states it —
     # "Ketac Molar" (title) / "Ketac Molar by 3M ESPE …" (description). Check the

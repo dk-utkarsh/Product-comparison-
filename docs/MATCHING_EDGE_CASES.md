@@ -32,6 +32,16 @@ the suite); extraction cases are harder to unit-test (live HTML) so they live he
 5b. **Brand only in the DESCRIPTION** — title "Ketac Molar", description "Ketac
    Molar **by 3M ESPE** …". `_brand_match` also checks the first ~240 chars of the
    description for the brand/alias (guarded against "compatible with <other>").
+5c. **A shared generic TYPE word is NOT a brand match** — the rule that lets a
+   competitor drop the manufacturer and lead with the product LINE (5a) must fire
+   ONLY for a *distinctive* line, never a generic instrument type. DK "**Julldent**
+   Anterior **Gracey Curette** SGCC 1/2" vs amazon "Gracey Curette #1/2 Rigid":
+   "gracey" is a generic curette type (every brand makes one), so sharing it is NOT
+   evidence of Julldent → **reject** (brand absent from name AND description).
+   `_GENERIC_TYPES` (curette/scaler/forceps/probe/… + eponyms gracey/langer/mccall…)
+   blocks rule 5a. Distinctive coined lines (Ketac, Fuji) are NOT in the set, so
+   they still pass. **Principle: brand must be in the competitor NAME → else
+   DESCRIPTION → else it's the wrong product.**
 
 ## B. Model / variant identity
 

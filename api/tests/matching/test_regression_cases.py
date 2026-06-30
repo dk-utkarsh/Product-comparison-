@@ -41,6 +41,18 @@ GATE_CASES = [
     ("Maarc Articulating Paper 70 Microns Horseshoe (5533/050)",
      "Maarc Articulating Paper (Horseshoe Shape) 40µ Microns", False, "70µ≠40µ"),
     ("GC Gold Label 9", "3M Filtek Z350", False, "cross-brand control"),
+    # A shared GENERIC instrument TYPE (gracey/curette/scaler…) is NOT a brand match:
+    # DK brand "Julldent" absent from name AND description → reject, even though both
+    # say "Gracey Curette". (Distinctive lines like Ketac/Fuji still pass — below.)
+    ("Julldent Anterior Gracey Curette - SGCC 1/2", "Gracey Curette #1/2 Rigid",
+     False, "generic type 'gracey' shared ≠ brand (Julldent absent)"),
+    ("Julldent Anterior Gracey Curette - SGCC 1/2", "GDC Gracey Curette 1/2",
+     False, "different brand GDC, only generic 'gracey' shared"),
+    ("Julldent Anterior Gracey Curette - SGCC 1/2", "Julldent Gracey Curette SGCC 1/2",
+     True, "same brand Julldent present"),
+    # Distinctive coined product LINE substitutes for the dropped manufacturer.
+    ("3M ESPE Ketac Molar Glass Ionomer", "Ketac Molar", True, "distinctive line Ketac"),
+    ("GC Fuji IX GP Glass Ionomer", "Fuji IX GP", True, "distinctive line Fuji"),
     # Brand spelled with/without spaces/hyphens is the SAME brand…
     ("Oracraft Tissue Plier - TP37", "Ora Craft Tissue Plier Angular 11.5cm TP37",
      True, "Oracraft == Ora Craft (spacing)"),
