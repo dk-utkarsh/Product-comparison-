@@ -143,6 +143,56 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-30 (pm-2) — Visual result cards, brand-gate fix, pinkblue self-heal, prod live
+
+Built on the morning's work; all pushed (`8c00cec` → `94d9f01`) and **deployed +
+verified on prod** (209.38.120.154:8000).
+
+**UI — bulk / scheduled-run made attractive (Option B cards):**
+- Bulk + scheduled-run results now render as **per-product cards** (one shared
+  `compareCardsHTML`), so each product shows only ITS competitors — no sparse shared
+  columns when Google returns different merchants per product. Each card:
+  position-colored left accent stripe (green cheapest / amber mid / red priciest),
+  big DK price, **plain-language verdict banner** (🏆/💰/⚠ "cheapest is <x> at ₹… —
+  ₹… below DK"), KPI tiles (lowest / # cheaper / max saving / headroom), color chips
+  with a ⭐ on the cheapest undercutter, expand → full competitor cells (✓keep/✗hide)
+  + pricing-position table. Metrics come from ONE `productMetrics()` helper — the
+  source the upcoming MCP insight charts will read.
+- Removed the confusing low─DK─high price bar (replaced by the verdict banner).
+- **Scheduled Runs list** redesigned from a flat table to **run cards** (status
+  accent, Google chip, SKU progress bar, accuracy pill, hover-tint actions).
+- Removed the per-product **price-history** table from the card expand (not relevant
+  now; `/runs/history` endpoint left intact for later).
+
+**Matching — brand is mandatory (name → description → else wrong):**
+- Fixed a false positive: DK "**Julldent** Anterior **Gracey Curette**" matched
+  amazon "Gracey Curette #1/2 Rigid" because the "competitor leads with the
+  product-line word" rule fired on "**gracey**" — but gracey is a generic curette
+  TYPE, not a brand. Added `_GENERIC_TYPES` (curette/scaler/forceps/probe/… +
+  eponyms gracey/langer/mccall/columbia…) and excluded them from that rule.
+  Distinctive coined lines (Ketac, Fuji) still pass. Verified via gate_check (6
+  cases) + live (amazon now rejected). Regression rows added.
+
+**Robustness — pinkblue self-heals on prod:**
+- `smartFetch` now AUTO-falls back to ScraperAPI when a direct fetch to a
+  datacenter-blocked host (pinkblue) is blocked/errors. Prod reads pinkblue with NO
+  flag; local stays direct (no credits). `PROXY_PINKBLUE` is now just a speed
+  optimization. Verified: prod pinkblue ₹2559 (was "couldn't verify").
+
+**Prod parity — CONFIRMED LIVE:** reviewer set the droplet `.env`
+(`DATABASE_URL`→Neon, new `SERPAPI_KEY`). Verified on prod: `/runs`=32 & `/reviews`
+=71 (shared Neon), new SerpAPI key in use (0→usage), full GC compare matches local
+exactly (buzzdent ₹2858, medidentalpro ₹2812, jaypee ₹2695, pinkblue ₹2559), UDS-E
+≠ P rejected on amazon. New UI live on prod (pcard-verdict / run-card present).
+
+How **✗hide** works (for reference): writes `confirmed_matches` label=no_match
+(shared DB) → next compare short-circuits that competitor to "Confirmed: not sold
+here" (no scrape). NOTE/OPEN: no one-click UN-hide in the UI yet (hidden cells lose
+the ✓/✗ buttons) — add an un-hide affordance if wanted.
+
+NEXT: MCP-driven insight visualizations (reuse `productMetrics`); optional un-hide
+button; semantic-synonym LLM judge (needs Anthropic key); reviewer runs regression.
+
 ### 2026-06-30 — Multi-platform extraction, shared Neon DB, prod parity
 
 Driven by real GC Gold Label 9 / Woodpecker UDS-E misses. Two themes: **(1) read
