@@ -75,6 +75,13 @@ function findProductNode(node: unknown): Record<string, unknown> | null {
   const isProduct = (x: unknown): boolean =>
     typeof x === "string" && /(^|\/)(Individual)?Product$/i.test(x);
   if (isProduct(t) || (Array.isArray(t) && t.some(isProduct))) return obj;
+  // A ProductGroup (or any wrapper) carries the priced Product node(s) in
+  // `hasVariant[]` rather than at the top level — jaypeedent emits a ProductGroup
+  // whose variants hold name/offers/image. Recurse in so we don't miss the price.
+  if (obj["hasVariant"]) {
+    const hit = findProductNode(obj["hasVariant"]);
+    if (hit) return hit;
+  }
   if (obj["@graph"]) return findProductNode(obj["@graph"]);
   return null;
 }

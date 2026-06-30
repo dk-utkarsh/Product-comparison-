@@ -94,6 +94,11 @@ the suite); extraction cases are harder to unit-test (live HTML) so they live he
 
 19. **`@type` full-URL form** — accept "Product", "http(s)://schema.org/Product",
     "IndividualProduct", not just "Product" (hospitalstore.com).
+19a. **ProductGroup wrapper** — some sites (jaypeedent) don't put `Product` at the
+    top of `@graph`; they emit a `ProductGroup` whose `hasVariant[]` holds the
+    priced `Product` nodes. `findProductNode` recurses into `hasVariant` (not just
+    `@graph`/arrays), else the page reads as "couldn't verify" despite a clean
+    price (₹2695).
 20. **Malformed JSON-LD salvage** — strip JS `//` and `/* */` comments, trailing
     commas, AND **raw control characters** (literal tab/newline inside a string —
     dentganga). thedentistshop ships a `//` comment in its Product block.
@@ -154,13 +159,30 @@ the suite); extraction cases are harder to unit-test (live HTML) so they live he
     normally, never stamping a whole run "Not on Google Shopping".
 30. **Top-N order** — competitor columns are ordered matched-first, then others.
 
+## I-amazon. Amazon (lib/scrapers/generic.ts → parseAmazon)
+
+- **Amazon ships NO JSON-LD and NO OpenGraph** — `parsePdpHtml` finds nothing. A
+  dedicated DOM parser reads Amazon's proprietary markup:
+  - name → `#productTitle`
+  - price → FIRST `.a-offscreen` inside `#corePrice_feature_div` (the DEAL price;
+    the struck MRP is in a separate basis-price block) → ₹3200, with selector
+    fallbacks (`#corePriceDisplay_*`, `#price_inside_buybox`, `priceblock_*`,
+    `span.a-price .a-offscreen`).
+  - image → `#landingImage[data-a-dynamic-image]` (a {url:[w,h]} map) → first url.
+  - description → `#feature-bullets li` (specs for matching vs DK).
+  - currency → amazon.in is ₹/INR; a non-₹ symbol ($/€/£) → foreign → drop.
+- **It is NOT (always) anti-bot** — a residential IP gets HTTP 200; the failure was
+  purely a parsing gap. The droplet (datacenter IP) WILL captcha, so
+  `fetchAmazonProduct` tries direct THEN the ScraperAPI proxy.
+- A page with no price block (out of stock / dead ASIN) returns null → "couldn't
+  verify" (never a wrong price). Verified on 3 live ASINs + the GC one.
+
 ## I. Known-hard (no reliable fix without the AI extractor — currently parked)
 
 - **Pure SPA, no structured price** (dentalstores.in — React, price is plain-text
   MRP) → "couldn't verify" (no wrong price shown).
 - **No price in JSON-LD** (dentganga — name parses after control-char salvage, but
   offers carry no price) → "couldn't verify".
-- **Heavy anti-bot, non-standard** (amazon.in) → can't parse.
   These need the LLM extractor + judge (needs an Anthropic API key).
 
 ## J. Operational

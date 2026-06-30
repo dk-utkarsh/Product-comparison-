@@ -175,8 +175,105 @@ function parseMagentoVariations(html: string): ProductVariant[] {
   return out;
 }
 
+/** ₹/comma-formatted price text → number. "₹3,200.00" → 3200. */
+function rupees(s: string | undefined): number {
+  if (!s) return 0;
+  const n = parseFloat(String(s).replace(/[^0-9.]/g, ""));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Amazon ships NO JSON-LD and NO OpenGraph product tags — the shared
+ *  `parsePdpHtml` (JSON-LD → OG → microdata) finds nothing and returns null. The
+ *  data lives only in Amazon's proprietary DOM, so parse it directly:
+ *    • name  → #productTitle
+ *    • price → the FIRST `.a-offscreen` inside the core-price block (the deal
+ *              price; the struck-through MRP sits in a separate basis-price block)
+ *    • image → #landingImage `data-a-dynamic-image` (a {url:[w,h]} map) → first url
+ *  amazon.in is always INR (₹ in the price). Returns null if the title or a
+ *  positive price can't be found (e.g. a captcha/robot-check interstitial). */
+function parseAmazon(html: string, url: string): ProductData | null {
+  const $ = cheerio.load(html);
+  const name = $("#productTitle").first().text().trim();
+  if (!name) return null;
+
+  const priceText =
+    $("#corePrice_feature_div .a-price .a-offscreen").first().text().trim() ||
+    $("#corePriceDisplay_desktop_feature_div .a-price .a-offscreen").first().text().trim() ||
+    $("#corePrice_feature_div .a-offscreen").first().text().trim() ||
+    $("#price_inside_buybox").first().text().trim() ||
+    $("#priceblock_ourprice, #priceblock_dealprice").first().text().trim() ||
+    $("span.a-price span.a-offscreen").first().text().trim();
+  const price = rupees(priceText);
+  if (!(price > 0)) return null;
+
+  // Foreign Amazon storefront (amazon.com/.ae …) — a non-₹ symbol means a
+  // non-INR price; drop it (consistent with the generic currency guard).
+  if (priceText && !/₹|\bRs\.?\b|\bINR\b/i.test(priceText) && /[$€£]/.test(priceText)) {
+    return null;
+  }
+
+  let image = "";
+  const dyn =
+    $("#landingImage").attr("data-a-dynamic-image") ||
+    $("#imgBlkFront").attr("data-a-dynamic-image");
+  if (dyn) {
+    try { image = Object.keys(JSON.parse(dyn))[0] || ""; } catch { /* ignore */ }
+  }
+  if (!image) image = $("#landingImage").attr("src") || "";
+
+  const mrp =
+    rupees($("#corePrice_feature_div .a-text-price .a-offscreen, .basisPrice .a-offscreen")
+      .first().text().trim()) || price;
+
+  const description = $("#feature-bullets li")
+    .map((_, el) => $(el).text().trim())
+    .get()
+    .filter(Boolean)
+    .join(". ")
+    .slice(0, 500);
+
+  const clean = url.split("?")[0].replace(/\/$/, "");
+  const packSize = detectPackSize(name, description, url);
+  return {
+    name,
+    url: clean,
+    image,
+    price,
+    mrp: mrp > price ? mrp : price,
+    discount: mrp > price ? Math.round(((mrp - price) / mrp) * 100) : 0,
+    packaging: "",
+    inStock: true,
+    description,
+    source: new URL(clean).hostname.replace(/^www\./, ""),
+    packSize,
+    unitPrice: calculateUnitPrice(price, packSize),
+    variantSpec: parseVariantSpec(`${name} ${description.slice(0, 300)}`),
+  };
+}
+
+/** Amazon needs its own fetch+parse (no structured data) AND will captcha a
+ *  datacenter IP (the droplet) even though a residential IP gets 200 — so try
+ *  direct first, then the ScraperAPI proxy. */
+async function fetchAmazonProduct(url: string): Promise<ProductData | null> {
+  const direct = await getHtml(url, 20000);
+  let data = direct ? parseAmazon(direct, url) : null;
+  if (!data) {
+    const viaScraper = scraperApiUrl(url);
+    if (viaScraper) {
+      const h2 = await getHtml(viaScraper, 40000);
+      data = h2 ? parseAmazon(h2, url) : null;
+    }
+  }
+  return data;
+}
+
 export async function fetchGenericProduct(url: string): Promise<ProductData | null> {
   if (!url || /^https?:\/\//i.test(url) === false) return null;
+
+  // Amazon has no JSON-LD/OG — route to the dedicated DOM parser.
+  try {
+    if (/(^|\.)amazon\./i.test(new URL(url).hostname)) return fetchAmazonProduct(url);
+  } catch { /* malformed URL — fall through to generic */ }
 
   // 1) Direct fetch + parse (now salvages malformed JSON-LD, OG/microdata price).
   let html = await getHtml(url);
