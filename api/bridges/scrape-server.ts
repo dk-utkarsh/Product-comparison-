@@ -13,10 +13,16 @@
  */
 import { createServer } from "http";
 import { readFileSync, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
-// Load .env from repo root into process.env (without overriding already-set vars).
-// Lets us pick up SCRAPER_API_KEY etc. without a dotenv dep.
-const envFile = ".env";
+// Load the repo-root .env into process.env (without overriding already-set vars),
+// so we pick up SCRAPER_API_KEY / PROXY_PINKBLUE without a dotenv dep. The path is
+// resolved relative to THIS FILE (api/bridges/ -> repo root), NOT the cwd: on the
+// droplet the systemd unit's WorkingDirectory may differ, and a cwd-relative ".env"
+// would silently miss the proxy key → every datacenter-IP-blocked site (pinkblue,
+// amazon, buzzdent, medidentalpro) would fail on prod while working locally.
+const envFile = resolve(dirname(fileURLToPath(import.meta.url)), "../..", ".env");
 if (existsSync(envFile)) {
   for (const line of readFileSync(envFile, "utf-8").split("\n")) {
     const m = line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
