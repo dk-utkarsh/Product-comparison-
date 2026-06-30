@@ -143,6 +143,67 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-06-30 — Multi-platform extraction, shared Neon DB, prod parity
+
+Driven by real GC Gold Label 9 / Woodpecker UDS-E misses. Two themes: **(1) read
+every storefront platform, not just WooCommerce; (2) make prod behave exactly like
+local** (shared DB + env parity). All pushed (`658be27` → `0e51a82`).
+
+**Extraction — don't be limited to known platforms:**
+- **Images** (`lib/pdp.ts`): schema.org `image` can be an `ImageObject`/array of them;
+  `String()` produced `"[object Object]"` → broken thumbnail. `jsonLdImageUrl()`
+  unwraps `url`/`contentUrl`/`@id`. Fixed dentosky, onlinedental, medidentalpro.
+- **Sub-variants per platform** (`lib/scrapers/generic.ts`): a page's single JSON-LD
+  price is the default/cheapest, so we showed the wrong pack. Added **Shopify**
+  (`/products/<handle>.json` — buzzdent ₹1424 Mini → ₹2858 (Extra) Big Pack) and
+  **Magento** (`jsonConfig` — medidentalpro ₹1379 → ₹2812 Big Pack (Extra)) on top
+  of the existing WooCommerce path.
+- **Amazon** (`parseAmazon`): ships NO JSON-LD/OG (not anti-bot — a residential IP
+  gets 200; it was a parsing gap). Dedicated DOM parser: `#productTitle`, the deal
+  `.a-offscreen` in `#corePrice_feature_div`, `#landingImage`, feature-bullets,
+  INR/foreign guard; direct → ScraperAPI (droplet IP captchas). Verified on 4 ASINs.
+- **JSON-LD ProductGroup** (`findProductNode`): jaypeedent wraps priced `Product`
+  nodes in a `ProductGroup.hasVariant[]` → recurse in (was "couldn't verify" →
+  ₹2695).
+- **Platform-NEUTRAL fallback** (`parseSchemaVariants`): after the 3 platform
+  parsers, fall back to schema.org `hasVariant` so a store we have NO parser for
+  still resolves variants (verified: dentalprod). Shopify `.json` probe now fires on
+  any `/products/<handle>` URL (custom-domain Shopify). Base extraction
+  (name/price/image/desc) was already platform-agnostic via JSON-LD/OG/microdata
+  (verified: shristigroup custom cart). Structure-less SPA / parked pages correctly
+  stay "couldn't verify" (no wrong price).
+- All catalogued in `docs/MATCHING_EDGE_CASES.md` (§F 19a/22a, §G 24/25a/25p, §I-amazon).
+
+**Shared database — local & prod now ONE store (Neon Postgres):**
+- The run-store (runs, run_items, reviews, watchlist, **confirmed_matches** learning
+  loop) was per-machine SQLite → local & prod diverged. Ported `run_store.py` to the
+  shared Neon DB: **identical public API** (all 31 call sites unchanged), per-call
+  psycopg conn against Neon's `-pooler` endpoint (works same on macOS + Linux;
+  psycopg_pool's worker threads hit a macOS DNS bug, so avoided), self-created schema
+  (CREATE IF NOT EXISTS), `list_runs` N+1 batched.
+- Migrated all data into Neon: **32 runs, 857 items, 71 reviews, 14 confirmed, 5
+  watchlist** (ids + sequences preserved; write/read/delete verified). Neon conn
+  string validated; alembic `upgrade head` ran clean (pgvector enabled).
+
+**Prod parity (`scripts/deploy.sh`, sidecar, `.env.example`):**
+- Sidecar `.env` now resolved relative to the file (repo root), NOT cwd — a different
+  systemd WorkingDirectory would silently drop `SCRAPER_API_KEY`/`PROXY_PINKBLUE`
+  and break every datacenter-IP-blocked site on prod only.
+- `deploy.sh` now health-gates the **sidecar (3100)** too, not just the API — a dead
+  sidecar no longer "passes" while all extraction is broken.
+- New `api/.env.example` + rewritten root `.env.example` document every required var.
+- New SerpAPI key (Free, 250/mo) in local `api/.env`.
+
+**Prod tests (droplet):** core + Google paths work; today's fixes are LIVE
+(jaypeedent ₹2695, buzzdent ₹2800, medidentalpro ₹2624, UDS-E≠P rejected on amazon).
+
+NEXT — droplet `.env` still to set by reviewer (then `bash scripts/deploy.sh`):
+1. `api/.env`: `DATABASE_URL` → the Neon URL (prod `/runs`=0 ⇒ not on shared DB yet);
+   `SERPAPI_KEY` → new key `26731cc5…` (new key shows 0/250 used ⇒ prod on old key).
+2. root `.env`: `PROXY_PINKBLUE=1` (pinkblue "couldn't verify" on prod without it).
+3. Then re-run prod tests to confirm 14 confirmed matches + new key in use.
+Open: semantic synonyms (LLM judge, needs Anthropic key); reviewer runs regression.
+
 ### 2026-06-29 (pm-6) — Read more pages + brand-by-description + Extra-flag + spec-from-description
 
 Long debugging session on real misses (Ketac Molar, GC Gold Label 9, sterilization
