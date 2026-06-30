@@ -522,6 +522,58 @@
       .hero { padding: 28px 0 18px; }
       .quick-row { flex-direction: column; }
     }
+
+    /* ── Product result cards (bulk + scheduled-run; Option B price-bar style) ── */
+    .pcards { display: flex; flex-direction: column; gap: 16px; }
+    .pcard {
+      background: var(--paper); border: 1px solid var(--rule); border-radius: 14px;
+      padding: 18px 20px; box-shadow: 0 1px 2px rgba(16,18,23,.04);
+      transition: box-shadow .16s ease, transform .16s ease;
+    }
+    .pcard:hover { box-shadow: 0 8px 24px rgba(16,18,23,.09); transform: translateY(-1px); }
+    .pcard-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+    .pcard-title { font-size: 15px; font-weight: 650; color: var(--ink); letter-spacing: -.01em; line-height: 1.32; max-width: 62ch; }
+    .pcard-idx { color: var(--ink-mute); font-weight: 700; font-size: 12px; margin-right: 8px; }
+    .pcard-rv { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+    .pcard-dk { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 14px 0 2px; }
+    .pcard-dk .dk-price { font-size: 27px; font-weight: 750; color: var(--brand-deep); letter-spacing: -.02em; line-height: 1; }
+    .pcard-dk .dk-lbl { font-size: 11px; color: var(--ink-mute); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+    .pcard-dk .dk-name { font-size: 12px; color: var(--ink-mute); }
+
+    .pbar { margin: 16px 0 2px; }
+    .pbar-track {
+      position: relative; height: 8px; border-radius: 999px;
+      background: linear-gradient(90deg, var(--emerald-tint), #fef3c7 52%, var(--rust-tint));
+    }
+    .pbar-marker {
+      position: absolute; top: 50%; width: 15px; height: 15px; border-radius: 50%;
+      background: var(--brand); border: 2.5px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.28);
+      transform: translate(-50%, -50%);
+    }
+    .pbar-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-mute); margin-top: 7px; }
+    .pbar-ends b { color: var(--ink); font-weight: 650; }
+
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(116px, 1fr)); gap: 10px; margin: 16px 0 4px; }
+    .kpi { background: var(--canvas); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px; }
+    .kpi-num { font-size: 18px; font-weight: 750; color: var(--ink); letter-spacing: -.01em; }
+    .kpi.good .kpi-num { color: var(--emerald); }
+    .kpi.up .kpi-num { color: var(--brand); }
+    .kpi-lbl { font-size: 11px; color: var(--ink-mute); margin-top: 3px; line-height: 1.25; }
+
+    .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+    .chip {
+      font-size: 12px; padding: 4px 11px; border-radius: 999px;
+      border: 1px solid var(--rule-2); background: var(--paper); color: var(--ink-mute);
+    }
+    .chip b { color: var(--ink); font-weight: 650; margin-left: 4px; }
+    .chip.cheap { background: var(--emerald-tint); border-color: transparent; color: #14532d; }
+    .chip.cheap b { color: #14532d; }
+    .chip.dear { background: var(--rust-tint); border-color: transparent; color: #7f1d1d; }
+    .chip.dear b { color: #7f1d1d; }
+
+    .pcard-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+    .pcard-empty { color: var(--ink-mute); font-size: 13px; padding: 6px 0; }
+    .pcard-detail { margin-top: 14px; border-top: 1px dashed var(--rule-2); padding-top: 14px; }
   </style>
 </head>
 <body>
@@ -1175,6 +1227,136 @@ function compareTableHTML(results) {
     </div>`;
 }
 
+// ── Option B product cards (bulk + scheduled-run) ────────────────────────────
+// Shared per-product metrics — ALSO the single source the future insight charts
+// (MCP visualizations) read, so cards and charts always show the same numbers.
+function productMetrics(r) {
+  const dk = r.dentalkart_match?.matched_price ?? null;
+  const comps = (r.competitors || [])
+    .filter(isShownMatch)
+    .map((c) => ({ id: c.competitor_id, name: c.competitor_name || c.competitor_id,
+                   price: c.matched_price, url: c.matched_url, verdict: c.verdict }))
+    .filter((c) => c.price > 0)
+    .sort((a, b) => a.price - b.price);
+  const m = { dk, comps, n: comps.length };
+  if (!comps.length) return m;
+  const prices = comps.map((c) => c.price);
+  m.minC = Math.min(...prices);
+  m.maxC = Math.max(...prices);
+  m.cheapest = comps[0];
+  if (dk != null && dk > 0) {
+    m.beat = comps.filter((c) => c.price < dk).length;        // competitors cheaper than DK
+    m.save = dk > m.minC ? Math.round(dk - m.minC) : 0;        // max saving vs the cheapest
+    m.headroom = dk < m.maxC ? Math.round(m.maxC - dk) : 0;    // room to raise under the priciest
+    m.position = dk <= m.minC ? "cheapest" : dk >= m.maxC ? "highest" : "mid";
+    const span = m.maxC - m.minC;
+    m.dkPct = span > 0 ? Math.max(0, Math.min(100, ((dk - m.minC) / span) * 100))
+      : (dk < m.minC ? 0 : dk > m.maxC ? 100 : 50);  // single/equal-priced competitors
+  }
+  return m;
+}
+
+function priceBarHTML(m) {
+  const pct = m.dkPct == null ? 50 : m.dkPct;
+  return `
+    <div class="pbar">
+      <div class="pbar-track"><div class="pbar-marker" style="left:${pct}%" title="DK ${fmtMoney(m.dk)}"></div></div>
+      <div class="pbar-ends">
+        <span>low <b>${fmtMoney(m.minC)}</b></span>
+        <span>DK <b>${fmtMoney(m.dk)}</b></span>
+        <span><b>${fmtMoney(m.maxC)}</b> high</span>
+      </div>
+    </div>`;
+}
+
+function productCardHTML(r, i) {
+  const searchTerm = r.dentalkart.name;
+  const dkPrice = r.dentalkart_match?.matched_price ?? null;
+  const m = productMetrics(r);
+  const hasData = m.n > 0 && dkPrice != null;
+
+  const posPill = !m.n ? ``
+    : dkPrice == null ? `<span class="pill">no DK price</span>`
+    : m.position === "cheapest" ? `<span class="pill emerald">DK cheapest</span>`
+    : m.position === "highest" ? `<span class="pill rust">DK priciest</span>`
+    : `<span class="pill">DK mid-priced</span>`;
+
+  const body = hasData ? `
+    ${priceBarHTML(m)}
+    <div class="kpis">
+      <div class="kpi"><div class="kpi-num">${fmtMoney(m.minC)}</div><div class="kpi-lbl">lowest · ${enc(m.cheapest.name)}</div></div>
+      <div class="kpi"><div class="kpi-num">${m.beat}/${m.n}</div><div class="kpi-lbl">cheaper than DK</div></div>
+      <div class="kpi ${m.save > 0 ? "good" : ""}"><div class="kpi-num">${m.save > 0 ? "−" + fmtMoney(m.save) : "—"}</div><div class="kpi-lbl">max saving vs lowest</div></div>
+      <div class="kpi ${m.headroom > 0 ? "up" : ""}"><div class="kpi-num">${m.headroom > 0 ? "+" + fmtMoney(m.headroom) : "—"}</div><div class="kpi-lbl">raise headroom</div></div>
+    </div>
+    <div class="chips">
+      ${m.comps.map((c) => {
+        const cls = dkPrice != null && c.price < dkPrice ? "cheap" : dkPrice != null && c.price > dkPrice ? "dear" : "";
+        return `<span class="chip ${cls}" title="${enc(c.name)}">${enc(c.name)}<b>${fmtMoney(c.price)}</b></span>`;
+      }).join("")}
+    </div>`
+    : `<div class="pcard-empty">${dkPrice == null ? "Dentalkart price not found for this product." : "No verified competitor match for this product."}</div>`;
+
+  return `
+    <div class="pcard">
+      <div class="pcard-head">
+        <div class="pcard-title"><span class="pcard-idx">#${i + 1}</span>${enc(searchTerm)}</div>
+        <div class="pcard-rv">
+          <span style="font-size:11px;color:var(--ink-mute);font-weight:600;">Accuracy:</span>
+          <button class="btn-ghost" id="rv-ok-${i}" title="This match is correct"
+            onclick="markReview(${i}, true)" style="font-size:12px;padding:3px 10px;">✓ correct</button>
+          <button class="btn-ghost" id="rv-no-${i}" title="This match needs fixing — add a note"
+            onclick="markReview(${i}, false)" style="font-size:12px;padding:3px 10px;">✗ needs fix</button>
+        </div>
+      </div>
+      <div class="pcard-dk">
+        <span class="dk-lbl">Dentalkart</span>
+        <span class="dk-price">${fmtMoney(dkPrice)}</span>
+        ${posPill}
+      </div>
+      ${body}
+      <textarea id="rv-msg-${i}" placeholder="What's wrong / how to improve…"
+        style="display:none;width:100%;margin-top:10px;font-size:12px;min-height:48px;"></textarea>
+      <div class="pcard-actions">
+        <button class="btn-ghost" id="insight-btn-${i}" onclick="toggleInsight(${i})"
+          style="font-size:12px;padding:4px 12px;">＋ Competitor details &amp; insight</button>
+      </div>
+      <div class="pcard-detail" id="insight-row-${i}" style="display:none;">
+        <div id="insight-body-${i}"></div>
+      </div>
+    </div>`;
+}
+
+// Per-product detail (expand): full DK + competitor cells WITH ✓keep/✗hide, for
+// THIS product's competitors only — no blank shared columns.
+function productDetailHTML(r) {
+  const searchTerm = r.dentalkart.name;
+  const dkPrice = r.dentalkart_match?.matched_price ?? null;
+  const dkUrl = r.dentalkart_match?.matched_url ?? null;
+  const comps = r.competitors || [];
+  const head = `<th>Dentalkart</th>${comps.map((c) => `<th>${enc(c.competitor_name || c.competitor_id)}</th>`).join("")}`;
+  const cells = cellHtml(r.dentalkart_match, true, searchTerm, dkPrice, dkUrl) +
+    comps.map((c) => cellHtml(c, false, searchTerm, dkPrice, dkUrl)).join("");
+  return `<div style="overflow-x:auto;">
+      <table class="compare-table"><thead><tr>${head}</tr></thead><tbody><tr>${cells}</tr></tbody></table>
+    </div>`;
+}
+
+function compareCardsHTML(results) {
+  CURRENT_RESULTS = results;
+  REVIEWS = {};
+  const cards = results.map((r, i) => productCardHTML(r, i)).join("");
+  return `
+    <div class="pcards">${cards}</div>
+    <div class="card" id="review-bar" style="margin-top:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+      <strong>Accuracy review</strong>
+      <span style="color:var(--ink-mute);font-size:13px;">Mark each product ✓ correct or ✗ needs-fix (add a note), then submit.</span>
+      <span class="pill" id="review-progress">0 reviewed</span>
+      <button class="btn-primary" onclick="submitReviews()" style="padding:8px 16px;">Submit &amp; calculate accuracy</button>
+      <div id="accuracy-result" style="flex-basis:100%;"></div>
+    </div>`;
+}
+
 function markReview(i, correct) {
   REVIEWS[i] = { correct };
   const ok = $("rv-ok-" + i), no = $("rv-no-" + i), msg = $("rv-msg-" + i);
@@ -1226,14 +1408,15 @@ function toggleInsight(i) {
   if (!row) return;
   if (row.style.display !== "none") {
     row.style.display = "none";
-    if (btn) btn.textContent = "＋ View insight";
+    if (btn) btn.textContent = "＋ Competitor details & insight";
     return;
   }
-  row.style.display = "table-row";
-  if (btn) btn.textContent = "－ Hide insight";
+  row.style.display = "";
+  if (btn) btn.textContent = "－ Hide details";
   const r = CURRENT_RESULTS[i];
   if (!$("insight-body-" + i).dataset.loaded) {
     $("insight-body-" + i).innerHTML =
+      productDetailHTML(r) +
       productInsightHTML(r) +
       `<div id="insight-history-${i}" class="status-msg" style="margin-top:10px;">Loading price history…</div>`;
     $("insight-body-" + i).dataset.loaded = "1";
@@ -1430,7 +1613,7 @@ function renderResults(data, elapsed) {
 
   // Render the table FIRST so a later insights error can never hide the results
   // + the accuracy-review controls.
-  $("results").innerHTML = compareTableHTML(data.results);
+  $("results").innerHTML = compareCardsHTML(data.results);
   try { renderPricingInsights(data.results, "pricing-insights"); }
   catch (e) { logLine("pricing insights failed: " + e.message); }
 }
@@ -1676,7 +1859,7 @@ async function openRun(id) {
       <span class="pill">${hits} matches</span>
       ${acc}`;
     renderPricingInsights(results, "run-detail-insights");
-    $("run-detail").innerHTML = results.length ? compareTableHTML(results)
+    $("run-detail").innerHTML = results.length ? compareCardsHTML(results)
       : `<div class="status-msg">No items in this run.</div>`;
   } catch (e) {
     $("run-detail").innerHTML = `<div class="status-msg">Failed to load run: ${enc(e.message)}</div>`;
