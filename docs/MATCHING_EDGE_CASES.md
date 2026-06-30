@@ -138,6 +138,19 @@ the suite); extraction cases are harder to unit-test (live HTML) so they live he
     block our IP too). Render is NOT used (~25 credits each and SPA pages usually
     have no structured price anyway). The Shopify `.json` fetch uses the same direct
     → proxy fallback.
+25p. **Platform-NEUTRAL first; platform-specific only as needed.** The base product
+    (name/price/image/description) comes from JSON-LD → OpenGraph → microdata →
+    title/h1 — standards ~every storefront emits, so an UNKNOWN platform we've never
+    seen still extracts (verified: shristigroup custom cart, dentalprod). The
+    platform-specific code exists ONLY for (a) sub-variants and (b) Amazon (no
+    structured data). For sub-variants, after the three platform parsers we fall
+    back to **schema.org `hasVariant`** (`parseSchemaVariants`) — also
+    platform-neutral, so any standards-compliant store's variants resolve (verified:
+    dentalprod picked 2 variants with no dedicated parser). The Shopify `.json`
+    probe fires on ANY `/products/<handle>` URL (custom-domain Shopify lacks the
+    cdn.shopify marker). Genuinely structure-less pages (SPA with JS-only price:
+    oralhealthcart; parked/geo-blocked: dentistdepots) stay "couldn't verify" — the
+    deliberate no-wrong-price line; only the AI extractor can read those.
 25a. **Discovery can land on the WRONG listing** — for buzzdent, Google surfaced a
     `gc-gold-label-hybrid` combined page (BUZZDENT title, no JSON-LD → unreadable),
     not the dedicated `gc-gold-label-9-hs-posterior-big-pack` product. Own-search /

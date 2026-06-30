@@ -14,7 +14,7 @@
  */
 import * as cheerio from "cheerio";
 import { smartFetch, scraperApiUrl } from "../http";
-import { parsePdpHtml } from "../pdp";
+import { parsePdpHtml, parseSchemaVariants } from "../pdp";
 import { detectPackSize, calculateUnitPrice } from "../pack-detector";
 import { parseVariantSpec } from "../variant-spec";
 import type { ProductData, ProductVariant } from "../types";
@@ -302,12 +302,37 @@ export async function fetchGenericProduct(url: string): Promise<ProductData | nu
   //   • WooCommerce → `data-product_variations` in the page HTML
   //   • Shopify     → `/products/<handle>.json` (HTML is JS-hydrated, no prices)
   //   • Magento     → `jsonConfig` object in the page HTML
+  //   • + a platform-NEUTRAL schema.org `hasVariant` fallback for any other store.
   let variants = html ? parseWooVariations(html) : [];
-  if (variants.length < 2 && html && /cdn\.shopify|Shopify\.|shopify-section/i.test(html)) {
+  // Shopify: probe whenever the URL is a /products/<handle> (covers custom-domain
+  // Shopify stores that strip the usual cdn.shopify markers), not only when a
+  // marker is present.
+  if (variants.length < 2 && (/\/products\/[^/?#]+/i.test(url) ||
+      (html && /cdn\.shopify|Shopify\.|shopify-section/i.test(html)))) {
     variants = await fetchShopifyVariations(url);
   }
   if (variants.length < 2 && html && html.includes('"jsonConfig"')) {
     variants = parseMagentoVariations(html);
+  }
+  // Platform-AGNOSTIC last resort: any standards-compliant store (known platform or
+  // not) that emits a schema.org ProductGroup/hasVariant. Catches merchants we
+  // have no dedicated parser for.
+  if (variants.length < 2 && html) {
+    const sv = parseSchemaVariants(html);
+    if (sv.length >= 2) {
+      variants = sv.map((v) => {
+        const packSize = detectPackSize(v.name);
+        return {
+          name: v.name,
+          sku: "",
+          price: v.price,
+          mrp: v.mrp > v.price ? v.mrp : v.price,
+          packSize,
+          unitPrice: calculateUnitPrice(v.price, packSize),
+          variantSpec: parseVariantSpec(v.name),
+        };
+      });
+    }
   }
 
   // Currency guard: all our competitors are Indian (gl=in). A page that declares a

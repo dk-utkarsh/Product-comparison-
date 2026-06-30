@@ -86,6 +86,83 @@ function findProductNode(node: unknown): Record<string, unknown> | null {
   return null;
 }
 
+/* Find ANY node carrying a `hasVariant` array — a schema.org ProductGroup. This is
+ * platform-NEUTRAL: it works on any store that emits standards-compliant JSON-LD,
+ * not just the platforms we have dedicated variant parsers for. */
+function findVariantGroup(node: unknown): Record<string, unknown> | null {
+  if (!node || typeof node !== "object") return null;
+  if (Array.isArray(node)) {
+    for (const n of node) {
+      const hit = findVariantGroup(n);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  const obj = node as Record<string, unknown>;
+  if (Array.isArray(obj["hasVariant"]) && (obj["hasVariant"] as unknown[]).length) return obj;
+  if (obj["@graph"]) return findVariantGroup(obj["@graph"]);
+  return null;
+}
+
+export interface SchemaVariant {
+  name: string;
+  price: number;
+  mrp: number;
+  image: string;
+}
+
+/* Platform-AGNOSTIC sub-variant extraction from schema.org JSON-LD. A
+ * `ProductGroup`'s `hasVariant[]` lists each child Product (with its own
+ * name + offers). Any standards-compliant store — known platform or not — exposes
+ * variants this way, so this catches sites we have no dedicated parser for. The
+ * JSON-LD salvage mirrors parsePdpHtml. Returns [] when there's no variant group. */
+export function parseSchemaVariants(html: string): SchemaVariant[] {
+  const $ = cheerio.load(html);
+  let group: Record<string, unknown> | null = null;
+  $('script[type="application/ld+json"]').each((_, el) => {
+    if (group) return;
+    const raw = $(el).text();
+    let data: unknown = null;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      try {
+        data = JSON.parse(
+          raw
+            .replace(/\/\*[\s\S]*?\*\//g, "")
+            .replace(/^\s*\/\/.*$/gm, "")
+            .replace(/,(\s*[}\]])/g, "$1")
+            // eslint-disable-next-line no-control-regex
+            .replace(/[\u0000-\u001f]/g, " "),
+        );
+      } catch {
+        return;
+      }
+    }
+    group = findVariantGroup(data);
+  });
+  if (!group) return [];
+  const variants = (group as Record<string, unknown>)["hasVariant"] as Array<Record<string, unknown>>;
+  const out: SchemaVariant[] = [];
+  for (const v of variants) {
+    if (!v || typeof v !== "object") continue;
+    const name = stripHtml(String(v.name ?? "")).trim();
+    const offersRaw = v.offers;
+    const offer = (Array.isArray(offersRaw) ? offersRaw[0] : offersRaw) as
+      | Record<string, unknown>
+      | undefined;
+    const price = num(offer?.price ?? offer?.lowPrice);
+    if (!name || !(price > 0)) continue;
+    out.push({
+      name,
+      price,
+      mrp: num(offer?.highPrice) || price,
+      image: jsonLdImageUrl(v.image),
+    });
+  }
+  return out;
+}
+
 export function parsePdpHtml(html: string): PdpData | null {
   const $ = cheerio.load(html);
 
