@@ -102,17 +102,42 @@ the suite); extraction cases are harder to unit-test (live HTML) so they live he
 22. **NO body-text price scraping** — deliberately removed; on real pages it grabs
     the struck-through MRP or concatenates digits (dentalstores → "2500024"). A
     wrong price is worse than none.
+22a. **`image` may be an ImageObject, not a URL string** — schema.org `image` can be
+    a URL, an array of URLs, an `ImageObject` ({"@type":"ImageObject","url":…}), OR
+    an array of ImageObjects (WooCommerce/Yoast ship the last form). A naive
+    `String(img)` yields the literal `"[object Object]"` → a broken `<img src>` →
+    blank thumbnail. `jsonLdImageUrl()` unwraps `url`/`contentUrl`/`@id` recursively.
+    Hit dentosky, onlinedental, medidentalpro — a whole class, not one site.
 
 ## G. Generic merchant fetch (lib/scrapers/generic.ts, sidecar)
 
 23. **Generic reader** for merchants with no dedicated scraper — JSON-LD/OG/microdata
     via `parsePdpHtml`, same pack/unit normalization.
-24. **WooCommerce variable products** — extract `data-product_variations` (every
-    size + price) into `variants[]` so `select_variant` picks the DK size
-    (ayushidensity reel: 55/75/100/150/200/300 MM).
+24. **Sub-variants per PLATFORM — all three must be extracted** into `variants[]` so
+    `select_variant` resolves the DK child (size / (Extra) Big Pack), not the
+    base/lowest price. A page's single JSON-LD/OG price is the DEFAULT (often the
+    cheapest Mini), so without variants we show the wrong pack:
+    - **WooCommerce** → `data-product_variations` attribute in the HTML
+      (ayushidensity reel: 55/75/100/150/200/300 MM).
+    - **Shopify** → variants are JS-hydrated (NOT in the server HTML — the page ships
+      only a lowPrice JSON-LD), so fetch `/products/<handle>.json` and map
+      `variants[]` (buzzdent GC Gold Label 9: picked ₹1424 Mini, correct ₹2858
+      (Extra) Big Pack). `.json` prices are major units; "Default Title" = single
+      variant (skip).
+    - **Magento** → `jsonConfig` object in the HTML: `attributes[].options[].label`
+      + `optionPrices[productId].finalPrice.amount` (medidentalpro GC Gold Label 9:
+      picked ₹1379 Mini, correct ₹2812 "Big Pack - (Extra)").
+    These cover the three storefront platforms ~every Indian dental merchant runs.
 25. **ScraperAPI fallback** — a cheap proxy fetch (no JS render) when the direct
-    fetch fails (datacenter-IP block, e.g. hospitalstore 403). Render is NOT used
-    (~25 credits each and SPA pages usually have no structured price anyway).
+    fetch fails (datacenter-IP block, e.g. hospitalstore 403; buzzdent/medidentalpro
+    block our IP too). Render is NOT used (~25 credits each and SPA pages usually
+    have no structured price anyway). The Shopify `.json` fetch uses the same direct
+    → proxy fallback.
+25a. **Discovery can land on the WRONG listing** — for buzzdent, Google surfaced a
+    `gc-gold-label-hybrid` combined page (BUZZDENT title, no JSON-LD → unreadable),
+    not the dedicated `gc-gold-label-9-hs-posterior-big-pack` product. Own-search /
+    multiple candidate URLs mitigate; the variant fix makes the right page correct
+    once reached. (Note: buzzdent names "Extra" → "HS / High Strength".)
 
 ## H. Discovery / DK anchor (api/app/serp.py, routes/serp.py)
 

@@ -35,6 +35,28 @@ function num(v: unknown): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+/* schema.org `image` may be a URL string, an array of URLs, an ImageObject
+ * ({"@type":"ImageObject","url":…}), or an array of ImageObjects (WooCommerce/
+ * Yoast ship the latter). A naive String() on an object yields the literal
+ * "[object Object]" — a broken <img src> — so unwrap to the first usable URL. */
+function jsonLdImageUrl(img: unknown): string {
+  if (!img) return "";
+  if (typeof img === "string") return img.trim();
+  if (Array.isArray(img)) {
+    for (const it of img) {
+      const u = jsonLdImageUrl(it);
+      if (u) return u;
+    }
+    return "";
+  }
+  if (typeof img === "object") {
+    const o = img as Record<string, unknown>;
+    const u = o.url ?? o.contentUrl ?? o["@id"];
+    return typeof u === "string" ? u.trim() : "";
+  }
+  return "";
+}
+
 /* JSON-LD can be a Product, an array, or a @graph wrapper. */
 function findProductNode(node: unknown): Record<string, unknown> | null {
   if (!node || typeof node !== "object") return null;
@@ -101,8 +123,7 @@ export function parsePdpHtml(html: string): PdpData | null {
     sku = String(p.sku ?? "");
     const b = p.brand as Record<string, unknown> | string | undefined;
     brand = typeof b === "object" && b ? String(b.name ?? "") : String(b ?? "");
-    const img = p.image;
-    image = Array.isArray(img) ? String(img[0] ?? "") : String(img ?? "");
+    image = jsonLdImageUrl(p.image);
     const offersRaw = p.offers;
     const offer = (Array.isArray(offersRaw) ? offersRaw[0] : offersRaw) as
       | Record<string, unknown>

@@ -67,6 +67,114 @@ function parseWooVariations(html: string): ProductVariant[] {
   return out;
 }
 
+/** Shopify VARIABLE products keep their variants in the storefront product JSON,
+ *  NOT in the page HTML (the variant <select> is hydrated client-side, so a server
+ *  fetch sees only the default/lowest price — e.g. buzzdent GC Gold Label 9 shows
+ *  ₹1424 Mini Pack when the DK product is the ₹2858 (Extra) Big Pack). Every
+ *  Shopify store exposes `/products/<handle>.json`; fetch it (direct, then
+ *  ScraperAPI proxy on a datacenter-IP block) and map each variant so the Python
+ *  `select_variant` can pick the child matching the DK pack. Returns [] for
+ *  non-Shopify / single-variant pages. */
+async function fetchShopifyVariations(url: string): Promise<ProductVariant[]> {
+  const m = url.split("?")[0].match(/^(https?:\/\/[^/]+)(?:.*?)\/products\/([^/?#]+)/i);
+  if (!m) return [];
+  const endpoint = `${m[1]}/products/${m[2].replace(/\.(html|js|json)$/i, "")}.json`;
+  let raw = await getHtml(endpoint, 12000);
+  if (!raw) {
+    const viaScraper = scraperApiUrl(endpoint);
+    if (viaScraper) raw = await getHtml(viaScraper, 40000);
+  }
+  if (!raw) return [];
+  let data: { product?: Record<string, unknown> } & Record<string, unknown>;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  const p = (data.product || data) as Record<string, unknown>;
+  const vs = Array.isArray(p.variants) ? (p.variants as Array<Record<string, unknown>>) : [];
+  if (vs.length < 2) return []; // single-variant product — nothing to choose
+  const out: ProductVariant[] = [];
+  for (const v of vs) {
+    // The variant `title` is the option combo (e.g. "GC Gold Label 9 (Extra) Big
+    // Pack"); "Default Title" means a single-option product (filtered above/in
+    // select_variant). Shopify `.json` prices are major units ("2858.00").
+    const name = String(v.title || "").trim();
+    const price = Number(v.price) || 0;
+    if (!name || !(price > 0)) continue;
+    const packSize = detectPackSize(name);
+    // compare_at_price is the struck-through "was" price — use it only when it's
+    // actually higher (some stores ship junk like 250 for a 2858 product).
+    const cmp = Number(v.compare_at_price) || 0;
+    out.push({
+      name,
+      sku: String(v.sku || ""),
+      price,
+      mrp: cmp > price ? cmp : price,
+      packSize,
+      unitPrice: calculateUnitPrice(price, packSize),
+      variantSpec: parseVariantSpec(name),
+    });
+  }
+  return out;
+}
+
+/** Magento CONFIGURABLE products embed every option (label + price) in a
+ *  `jsonConfig` object already present in the page HTML — `attributes[].options[]`
+ *  carry the labels ("Big Pack - (Extra)") and `optionPrices[productId].finalPrice`
+ *  the prices. Without this a Magento page yields only the base/lowest JSON-LD
+ *  price (e.g. medidentalpro GC Gold Label 9 = ₹1379 Mini, when DK is the ₹2812
+ *  Big Pack (Extra)). No extra request — parsed from the HTML we already have.
+ *  Returns [] when the page is not a Magento configurable product. */
+function parseMagentoVariations(html: string): ProductVariant[] {
+  const key = html.indexOf('"jsonConfig"');
+  if (key < 0) return [];
+  const start = html.indexOf("{", key);
+  if (start < 0) return [];
+  let depth = 0;
+  let end = -1;
+  for (let j = start; j < html.length; j++) {
+    const c = html[j];
+    if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) { end = j; break; }
+    }
+  }
+  if (end < 0) return [];
+  let cfg: { attributes?: Record<string, { options?: Array<Record<string, unknown>> }>;
+             optionPrices?: Record<string, Record<string, { amount?: number }>> };
+  try {
+    cfg = JSON.parse(html.slice(start, end + 1));
+  } catch {
+    return [];
+  }
+  const optionPrices = cfg.optionPrices || {};
+  const out: ProductVariant[] = [];
+  const seen = new Set<string>();
+  for (const attr of Object.values(cfg.attributes || {})) {
+    for (const o of attr?.options || []) {
+      const label = String(o.label || "").trim();
+      const pid = String((Array.isArray(o.products) ? o.products[0] : "") || "");
+      const pr = pid ? optionPrices[pid] : undefined;
+      const price = Number(pr?.finalPrice?.amount) || 0;
+      if (!label || !(price > 0) || seen.has(label.toLowerCase())) continue;
+      seen.add(label.toLowerCase());
+      const packSize = detectPackSize(label);
+      out.push({
+        name: label,
+        sku: "",
+        price,
+        mrp: Number(pr?.oldPrice?.amount) || price,
+        packSize,
+        unitPrice: calculateUnitPrice(price, packSize),
+        variantSpec: parseVariantSpec(label),
+      });
+    }
+  }
+  return out;
+}
+
 export async function fetchGenericProduct(url: string): Promise<ProductData | null> {
   if (!url || /^https?:\/\//i.test(url) === false) return null;
 
@@ -90,10 +198,20 @@ export async function fetchGenericProduct(url: string): Promise<ProductData | nu
 
   if (!pdp || !pdp.name || !(pdp.price > 0)) return null;
 
-  // Sub-variants of a WooCommerce VARIABLE product (size/spec dropdown) — so the
+  // Sub-variants of a VARIABLE/CONFIGURABLE product (size/pack dropdown) — so the
   // Python variant-picker resolves to the one matching the DK product (e.g. the
-  // 150MM reel), not the base/default price.
-  const variants = html ? parseWooVariations(html) : [];
+  // 150MM reel, the (Extra) Big Pack), not the base/default/lowest price. Each
+  // storefront platform stores them differently, so try each in turn:
+  //   • WooCommerce → `data-product_variations` in the page HTML
+  //   • Shopify     → `/products/<handle>.json` (HTML is JS-hydrated, no prices)
+  //   • Magento     → `jsonConfig` object in the page HTML
+  let variants = html ? parseWooVariations(html) : [];
+  if (variants.length < 2 && html && /cdn\.shopify|Shopify\.|shopify-section/i.test(html)) {
+    variants = await fetchShopifyVariations(url);
+  }
+  if (variants.length < 2 && html && html.includes('"jsonConfig"')) {
+    variants = parseMagentoVariations(html);
+  }
 
   // Currency guard: all our competitors are Indian (gl=in). A page that declares a
   // NON-INR currency is a foreign storefront — its price isn't comparable (e.g. a
