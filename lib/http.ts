@@ -46,28 +46,22 @@ function randomItem<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-// Hosts whose requests should go through ScraperAPI when SCRAPER_API_KEY is set.
-// pinkblue.in blocks datacenter IPs (DigitalOcean etc.) at the firewall.
+// Hosts that block datacenter IPs (DigitalOcean etc.) at the firewall, so a direct
+// fetch works locally (residential IP) but not on prod. For these we AUTO-fall back
+// to ScraperAPI when the direct fetch is blocked/errors — no manual flag needed, so
+// prod self-heals. (Add a host here if it starts blocking our server IP.)
 const PROXY_HOSTS = new Set(["pinkblue.in", "www.pinkblue.in"]);
 
-function maybeProxy(url: string): string {
-  const key = process.env.SCRAPER_API_KEY;
-  // Routing pinkblue through ScraperAPI is OPT-IN via PROXY_PINKBLUE — it's only
-  // needed on datacenter IPs (production), where pinkblue firewalls the server.
-  // Locally pinkblue is reachable direct, so we must NOT proxy it just because a
-  // key is present (it both fails locally and burns credits). The generic
-  // ScraperAPI fallback (scraperApiUrl) is independent and only needs the key.
-  if (!key || !process.env.PROXY_PINKBLUE) return url;
+function isProxyHost(url: string): boolean {
   try {
-    const host = new URL(url).hostname;
-    if (PROXY_HOSTS.has(host)) {
-      return `https://api.scraperapi.com/?api_key=${key}&url=${encodeURIComponent(url)}&keep_headers=true`;
-    }
+    return PROXY_HOSTS.has(new URL(url).hostname);
   } catch {
-    // fall through
+    return false;
   }
-  return url;
 }
+
+// A response status that means "blocked / try the proxy" rather than a real answer.
+const BLOCKED_STATUS = new Set([403, 429, 503]);
 
 /** Wrap ANY url to route through ScraperAPI (datacenter-IP / anti-bot bypass).
  *  Returns null when no key is configured. Used as an explicit FALLBACK (not the
@@ -112,28 +106,54 @@ export async function smartFetch(
     if (ref) headers["Referer"] = ref;
   }
 
+  const key = process.env.SCRAPER_API_KEY;
+  const proxyHost = !!key && isProxyHost(url);
+  // Start through the proxy immediately ONLY when explicitly opted in (PROXY_PINKBLUE
+  // skips a doomed direct attempt on prod). Otherwise try direct first and
+  // auto-fall back to the proxy on a block/error — so a datacenter-blocked host
+  // (pinkblue) recovers on prod without anyone setting a flag, while staying direct
+  // (free, no credits) on a residential IP where the direct fetch succeeds.
+  let useProxy = proxyHost && !!process.env.PROXY_PINKBLUE;
+
   let lastError: Error | null = null;
 
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  // retries + 1 extra slot so the auto-proxy fallback always gets its own attempt.
+  for (let attempt = 0; attempt <= retries + 1; attempt++) {
+    const target = useProxy && key ? scraperApiUrl(url)! : url;
+    // ScraperAPI is slower (it fetches upstream for us) — give it room.
+    const t = useProxy ? Math.max(timeout, 40000) : timeout;
     try {
-      const response = await fetch(maybeProxy(url), {
+      const response = await fetch(target, {
         headers,
         redirect: "follow",
-        signal: AbortSignal.timeout(timeout),
+        signal: AbortSignal.timeout(t),
       });
 
-      // Retry on rate limit or server error
-      if ((response.status === 429 || response.status === 503) && attempt < retries) {
-        const backoff = Math.min(2000 * Math.pow(2, attempt), 10000);
-        await new Promise((r) => setTimeout(r, backoff));
-        // Rotate UA for retry
-        headers["User-Agent"] = randomItem(USER_AGENTS);
-        continue;
+      if (BLOCKED_STATUS.has(response.status)) {
+        // Datacenter-blocked host → switch to the proxy and retry immediately.
+        if (proxyHost && !useProxy) {
+          useProxy = true;
+          headers["User-Agent"] = randomItem(USER_AGENTS);
+          continue;
+        }
+        // Otherwise back off and retry (rate limit / transient server error).
+        if (response.status !== 403 && attempt < retries) {
+          const backoff = Math.min(2000 * Math.pow(2, attempt), 10000);
+          await new Promise((r) => setTimeout(r, backoff));
+          headers["User-Agent"] = randomItem(USER_AGENTS);
+          continue;
+        }
       }
 
       return response;
     } catch (e) {
       lastError = e instanceof Error ? e : new Error(String(e));
+      // Network error / timeout on a datacenter-blocked host → try the proxy.
+      if (proxyHost && !useProxy) {
+        useProxy = true;
+        headers["User-Agent"] = randomItem(USER_AGENTS);
+        continue;
+      }
       if (attempt < retries) {
         await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
         headers["User-Agent"] = randomItem(USER_AGENTS);

@@ -207,5 +207,11 @@ the suite); extraction cases are harder to unit-test (live HTML) so they live he
 - **Auto-flag ⚠** — surfaces borderline matches (possible verdict, different size,
   low similarity, price ≥2× off) for a human; never silently shown as confident.
 - **Prod parity** — `.env` is gitignored, so the droplet needs its own
-  `SERPAPI_KEY`, `SERP_ENABLED=1`, `SCRAPER_API_KEY`, and **`PROXY_PINKBLUE=1`**
-  (datacenter IP blocks pinkblue without the proxy).
+  `SERPAPI_KEY`, `SERP_ENABLED=1`, `SCRAPER_API_KEY`, and the Neon `DATABASE_URL`
+  (shared run-store / confirmed-match memory across local + prod).
+- **Datacenter-blocked hosts self-heal** — pinkblue blocks datacenter IPs, so it
+  reads on local (residential) but not prod. `smartFetch` now AUTO-falls back to
+  ScraperAPI when a direct fetch to a `PROXY_HOSTS` host is blocked/errors — prod
+  recovers with NO flag. `PROXY_PINKBLUE=1` is now only an optimization (skip the
+  doomed direct attempt, ~8s faster/fetch). Add a host to `PROXY_HOSTS` (lib/http.ts)
+  if it starts firewalling the server IP.
