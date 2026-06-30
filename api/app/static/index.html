@@ -1439,7 +1439,7 @@ async function submitReviews() {
 }
 window.submitReviews = submitReviews;
 
-// Per-product insight: pricing position vs competitors + price history over runs.
+// Per-product insight: pricing position vs competitors (the expand detail).
 function toggleInsight(i) {
   const row = $("insight-row-" + i), btn = $("insight-btn-" + i);
   if (!row) return;
@@ -1454,10 +1454,8 @@ function toggleInsight(i) {
   if (!$("insight-body-" + i).dataset.loaded) {
     $("insight-body-" + i).innerHTML =
       productDetailHTML(r) +
-      productInsightHTML(r) +
-      `<div id="insight-history-${i}" class="status-msg" style="margin-top:10px;">Loading price history…</div>`;
+      productInsightHTML(r);
     $("insight-body-" + i).dataset.loaded = "1";
-    loadProductHistory(i, r.dentalkart.name);
   }
 }
 window.toggleInsight = toggleInsight;
@@ -1497,38 +1495,6 @@ function productInsightHTML(r) {
     </div>`;
 }
 
-async function loadProductHistory(i, name) {
-  const el = $("insight-history-" + i);
-  if (!el) return;
-  try {
-    const r = await fetch("/runs/history?name=" + encodeURIComponent(name));
-    const hist = (await r.json()).history || [];
-    if (!hist.length) {
-      el.outerHTML = `<div id="insight-history-${i}" class="status-msg" style="margin-top:10px;">No past price history yet — this product hasn't appeared in a scheduled run.</div>`;
-      return;
-    }
-    const cols = COMPETITORS.map(([id]) => id);
-    const dkFirst = hist.find((h) => h.dk_price != null)?.dk_price;
-    const dkLast = [...hist].reverse().find((h) => h.dk_price != null)?.dk_price;
-    const trend = (dkFirst != null && dkLast != null && dkFirst !== dkLast)
-      ? ` — DK ${fmtMoney(dkFirst)} → ${fmtMoney(dkLast)} (${dkLast > dkFirst ? "+" : ""}${fmtMoney(Math.round(dkLast - dkFirst))})`
-      : "";
-    const head = `<th>Run time</th><th>DK</th>${cols.map((c) => `<th>${c}</th>`).join("")}`;
-    const rows = hist.map((h) => `
-      <tr>
-        <td>${fmtRunTime(h.time)}</td>
-        <td class="mono">${h.dk_price != null ? fmtMoney(h.dk_price) : "—"}</td>
-        ${cols.map((c) => `<td class="mono">${h.competitors[c] != null ? fmtMoney(h.competitors[c]) : "—"}</td>`).join("")}
-      </tr>`).join("");
-    el.outerHTML = `
-      <div id="insight-history-${i}" style="margin-top:10px;">
-        <div style="font-size:13px;color:var(--ink-mute);margin-bottom:6px;">Price history — ${hist.length} past run${hist.length === 1 ? "" : "s"}${trend}:</div>
-        <div style="overflow-x:auto;"><table class="compare-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
-      </div>`;
-  } catch (e) {
-    el.textContent = "Failed to load price history: " + e.message;
-  }
-}
 
 // Pricing-position analytics over a set of results (DK vs matched competitors).
 // Each product is bucketed so the UI can list the EXACT products per category.
