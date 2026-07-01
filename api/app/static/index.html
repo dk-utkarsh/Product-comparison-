@@ -654,6 +654,18 @@
     .ins-table td { padding: 9px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
     .ins-table tr:hover td { background: var(--canvas); }
     .ins-flag { display: inline-block; font-size: 10px; font-weight: 600; color: var(--gold); background: var(--gold-tint); border-radius: 4px; padding: 1px 6px; margin-left: 6px; white-space: nowrap; }
+    .ins-flag-btn { cursor: pointer; border: none; font-family: inherit; }
+    .ins-flag-btn:hover { filter: brightness(0.95); text-decoration: underline; }
+    /* Review modal */
+    .ins-modal { position: fixed; inset: 0; background: rgba(15,20,25,.45); z-index: 1000; display: flex; align-items: flex-start; justify-content: center; padding: 48px 20px; overflow: auto; }
+    .ins-modal-card { background: var(--paper); border-radius: 14px; width: 100%; max-width: 780px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+    .ins-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 22px; border-bottom: 1px solid var(--rule); position: sticky; top: 0; background: var(--paper); border-radius: 14px 14px 0 0; }
+    .ins-modal-head #ins-modal-title { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #ins-modal-body { padding: 18px 22px 24px; }
+    .rv-dk { display: flex; align-items: center; gap: 16px; padding: 12px 14px; border: 1px solid var(--rule); border-radius: 10px; background: var(--canvas); }
+    .rv-dk > div:first-child { flex: 1; min-width: 0; }
+    .rv-row { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--rule); }
+    .rv-row:last-child { border-bottom: none; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.54.1/dist/apexcharts.min.js"></script>
 </head>
@@ -897,6 +909,17 @@
       <div id="insights-body"><div class="status-msg">Loading…</div></div>
     </div>
   </section>
+
+  <!-- ── Review modal (opened from a flagged insights row) ── -->
+  <div id="ins-modal" class="ins-modal" style="display:none;">
+    <div class="ins-modal-card">
+      <div class="ins-modal-head">
+        <div id="ins-modal-title">Review compare</div>
+        <button id="ins-modal-close" class="btn-ghost" style="padding:4px 11px;font-size:16px;line-height:1;">✕</button>
+      </div>
+      <div id="ins-modal-body"></div>
+    </div>
+  </div>
 
 <script>
 const COMPETITORS = [
@@ -2151,9 +2174,13 @@ const INS_BUCKETS = [
 ];
 let INSIGHTS_DATA = null;
 let INSIGHTS_BUCKET = "overpriced";
+let INSIGHTS_SCOPE = "overall";
 let INS_CHARTS = [];
 
 const fmtINR = (n) => "₹" + (Math.round(Number(n) || 0)).toLocaleString("en-IN");
+const COMP_LABEL = Object.fromEntries(COMPETITORS.map(([id, label]) => [id, label]));
+const compLabel = (id) => COMP_LABEL[id] || id;
+const insExtreme = (dk, p) => p > 0 && dk > 0 && Math.max(dk, p) / Math.min(dk, p) >= 2;
 
 function showInsights() {
   COMPARE_SECTIONS.forEach((id) => { const el = $(id); if (el) el.style.display = "none"; });
@@ -2181,6 +2208,7 @@ async function populateInsightsScope() {
 
 async function loadInsights(scope) {
   INSIGHTS_BUCKET = "overpriced";
+  INSIGHTS_SCOPE = scope;
   const body = $("insights-body");
   body.innerHTML = `<div class="status-msg">Crunching pricing…</div>`;
   const url = scope === "overall" ? "/insights/overall" : `/insights/run/${scope}`;
@@ -2238,8 +2266,8 @@ function insDkLink(r) {
 function insGLink(r) {
   return `<a href="https://www.google.com/search?tbm=shop&q=${encodeURIComponent(r.name)}" target="_blank" class="docs-link" style="border:none;padding:0;font-size:13px;" title="Search this product on Google Shopping">🔍</a>`;
 }
-function insFlag(r) {
-  return r.review ? `<span class="ins-flag" title="A competitor is ≥2× off our price — likely a mismatch. Kept out of the ₹ totals until you review it (keep/hide).">⚠ review</span>` : "";
+function insFlag(r, bucketKey, i) {
+  return r.review ? `<button class="ins-flag ins-flag-btn" title="Open this exact compare to keep or hide the wrong match. Kept out of the ₹ totals until reviewed." onclick="openReview('${bucketKey}', ${i})">⚠ review</button>` : "";
 }
 
 function renderDrill(d) {
@@ -2253,15 +2281,15 @@ function renderDrill(d) {
       rows.map((r) => `<tr><td>${insDkLink(r)}</td><td class="mono">${fmtINR(r.dk)}</td><td>${insGLink(r)}</td></tr>`).join("") + `</tbody></table>`;
   } else if (INSIGHTS_BUCKET === "parity") {
     table = `<table class="ins-table"><thead><tr><th>Product</th><th>DK</th><th>Cheapest rival</th><th>Rivals</th><th></th></tr></thead><tbody>` +
-      rows.map((r) => `<tr><td>${insDkLink(r)}${insFlag(r)}</td><td class="mono">${fmtINR(r.dk)}</td><td class="mono">${fmtINR(r.min)}</td><td>${r.n_comp}</td><td>${insGLink(r)}</td></tr>`).join("") + `</tbody></table>`;
+      rows.map((r, i) => `<tr><td>${insDkLink(r)}${insFlag(r, INSIGHTS_BUCKET, i)}</td><td class="mono">${fmtINR(r.dk)}</td><td class="mono">${fmtINR(r.min)}</td><td>${r.n_comp}</td><td>${insGLink(r)}</td></tr>`).join("") + `</tbody></table>`;
   } else {
     const isOver = INSIGHTS_BUCKET === "overpriced";
     const oppLabel = isOver ? "Cut to match" : "Raise headroom";
     const oppColor = isOver ? "var(--rust)" : "var(--emerald)";
     table = `<table class="ins-table"><thead><tr><th>Product</th><th>DK</th><th>${isOver ? "Cheapest rival" : "Nearest rival"}</th><th>${oppLabel}</th><th>Rivals</th><th></th></tr></thead><tbody>` +
-      rows.map((r) => {
+      rows.map((r, i) => {
         const opp = isOver ? r.cut : r.headroom;
-        return `<tr><td>${insDkLink(r)}${insFlag(r)}</td><td class="mono">${fmtINR(r.dk)}</td><td class="mono">${fmtINR(r.min)}</td><td class="mono" style="color:${oppColor};font-weight:600">${fmtINR(opp)}</td><td>${r.n_comp}</td><td>${insGLink(r)}</td></tr>`;
+        return `<tr><td>${insDkLink(r)}${insFlag(r, INSIGHTS_BUCKET, i)}</td><td class="mono">${fmtINR(r.dk)}</td><td class="mono">${fmtINR(r.min)}</td><td class="mono" style="color:${oppColor};font-weight:600">${fmtINR(opp)}</td><td>${r.n_comp}</td><td>${insGLink(r)}</td></tr>`;
       }).join("") + `</tbody></table>`;
   }
   $("ins-drill").innerHTML = `<div style="font-size:12px;color:var(--ink-mute);margin:2px 0 12px;">${enc(b.desc)}</div>` + table;
@@ -2302,6 +2330,115 @@ function renderCharts(d) {
     bars.render(); INS_CHARTS.push(bars);
   }
 }
+
+/* ── Review modal — open the exact compare behind a flag, keep/hide inline ── */
+let REVIEW_STATE = null;
+let REVIEW_DIRTY = false;
+
+async function openReview(bucketKey, idx) {
+  if (!INSIGHTS_DATA) return;
+  const r = ((INSIGHTS_DATA.buckets || {})[bucketKey] || [])[idx];
+  if (!r) return;
+  $("ins-modal").style.display = "flex";
+  $("ins-modal-title").textContent = r.name;
+  $("ins-modal-body").innerHTML = `<div class="status-msg">Loading the compare…</div>`;
+  REVIEW_DIRTY = false;
+  // Pull the full stored compare (competitor titles/links) from its source run.
+  let result = null;
+  if (r.run_id != null) {
+    try {
+      const run = await (await fetch(`/runs/${r.run_id}`)).json();
+      const item = (run.items || []).find((it) => it.result &&
+        (((it.result.dentalkart || {}).name === r.name) || it.name === r.name));
+      if (item) result = item.result;
+    } catch (_) {}
+  }
+  const dkm = (result && result.dentalkart_match) || {};
+  const dk = dkm.matched_price || r.dk;
+  let comps;
+  if (result && Array.isArray(result.competitors)) {
+    comps = result.competitors.map((c) => ({
+      competitor_id: c.competitor_id, matched_name: c.matched_name,
+      matched_price: c.matched_price, matched_url: c.matched_url,
+      hidden: !!c.hidden, _kept: !!c._kept,
+    }));
+  } else {  // fall back to the insights summary if the run item is gone
+    comps = (r.competitors || []).map((c) => ({
+      competitor_id: c.id, matched_name: null, matched_price: c.price,
+      matched_url: c.url, hidden: false, _kept: !!c.kept,
+    }));
+  }
+  REVIEW_STATE = { product: r.name, dk, dkUrl: dkm.matched_url || r.dk_url, comps };
+  renderReviewPanel();
+}
+window.openReview = openReview;
+
+function renderReviewPanel() {
+  const s = REVIEW_STATE; if (!s) return;
+  const shown = s.comps.filter((c) => !c.hidden);
+  const hidden = s.comps.filter((c) => c.hidden);
+  const compRow = (c) => {
+    const ext = insExtreme(s.dk, c.matched_price) && !c._kept;
+    const mult = c.matched_price ? Math.round(Math.max(s.dk, c.matched_price) / Math.min(s.dk, c.matched_price)) : 0;
+    const nm = c.matched_name ? enc(c.matched_name) : `<span style="color:var(--ink-mute)">(no title stored)</span>`;
+    const link = c.matched_url ? `<a href="${enc(c.matched_url)}" target="_blank" class="docs-link" style="border:none;padding:0;font-size:12px;">open ↗</a>` : "";
+    const kept = c._kept ? `<span class="cell-tag ok" style="font-size:11px;">✓ kept</span>` : "";
+    return `<div class="rv-row">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;">${enc(compLabel(c.competitor_id))}${ext ? ` <span class="ins-flag">⚠ ${mult}× gap</span>` : ""}</div>
+        <div style="font-size:12px;color:var(--ink-mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${nm}</div>
+      </div>
+      <div class="mono" style="width:88px;text-align:right;flex:0 0 auto;">${c.matched_price != null ? fmtINR(c.matched_price) : "—"}</div>
+      <div style="width:56px;text-align:right;flex:0 0 auto;">${link}</div>
+      <div style="display:flex;gap:6px;align-items:center;flex:0 0 auto;">${kept}
+        <button class="btn-ghost" style="padding:3px 10px;font-size:12px;" onclick="reviewAct('${enc(c.competitor_id)}', true)">✓ Keep</button>
+        <button class="btn-ghost" style="padding:3px 10px;font-size:12px;color:var(--rust);" onclick="reviewAct('${enc(c.competitor_id)}', false)">✗ Hide</button>
+      </div>
+    </div>`;
+  };
+  const hiddenRow = (c) => `<div class="rv-row" style="opacity:.6;">
+      <div style="flex:1;">${enc(compLabel(c.competitor_id))} <span style="font-size:12px;color:var(--ink-mute)">— hidden</span></div>
+      <div class="mono" style="width:88px;text-align:right;">${c.matched_price != null ? fmtINR(c.matched_price) : "—"}</div>
+      <div><button class="btn-ghost" style="padding:3px 10px;font-size:12px;" onclick="reviewAct('${enc(c.competitor_id)}', false, true)">↩ Un-hide</button></div>
+    </div>`;
+  const anyExtreme = shown.some((c) => insExtreme(s.dk, c.matched_price) && !c._kept);
+  $("ins-modal-body").innerHTML = `
+    <div class="rv-dk">
+      <div><span style="font-size:12px;color:var(--ink-mute)">DentalKart</span><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;">${enc(s.product)}</div></div>
+      <div class="mono" style="font-size:18px;flex:0 0 auto;">${fmtINR(s.dk)}</div>
+      ${s.dkUrl ? `<a href="${enc(s.dkUrl)}" target="_blank" class="docs-link" style="border:none;padding:0;font-size:12px;flex:0 0 auto;">open ↗</a>` : ""}
+    </div>
+    ${anyExtreme ? `<div style="font-size:12px;color:var(--gold);background:var(--gold-tint);border-radius:6px;padding:8px 12px;margin:12px 0;">⚠ A competitor is ≥2× off our price — usually a wrong match. <strong>Hide</strong> it if it's a different product, or <strong>Keep</strong> it if the gap is genuinely real. Either one clears the review flag.</div>` : `<div style="height:12px;"></div>`}
+    <div>${shown.length ? shown.map(compRow).join("") : `<div class="status-msg">No visible competitors.</div>`}</div>
+    ${hidden.length ? `<div style="margin-top:14px;margin-bottom:4px;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-mute);">Hidden</div>${hidden.map(hiddenRow).join("")}` : ""}`;
+}
+
+async function reviewAct(cid, correct, unhide = false) {
+  const s = REVIEW_STATE; if (!s) return;
+  const c = s.comps.find((x) => x.competitor_id === cid); if (!c) return;
+  const payload = { product: s.product, competitor_id: cid,
+    matched_url: c.matched_url || null, matched_name: c.matched_name || null,
+    correct: !!correct, unhide: !!unhide };
+  try {
+    const res = await fetch("/reviews/cell", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!res.ok) throw new Error("http " + res.status);
+    if (unhide) { c.hidden = false; c._kept = false; }
+    else if (correct) { c._kept = true; c.hidden = false; }
+    else { c.hidden = true; c._kept = false; }
+    REVIEW_DIRTY = true;   // recompute insights when the modal closes
+    renderReviewPanel();
+  } catch (e) { logLine("reviewAct failed: " + e.message); }
+}
+window.reviewAct = reviewAct;
+
+function closeReview() {
+  $("ins-modal").style.display = "none";
+  REVIEW_STATE = null;
+  if (REVIEW_DIRTY) { REVIEW_DIRTY = false; loadInsights(INSIGHTS_SCOPE); }
+}
+$("ins-modal-close").addEventListener("click", closeReview);
+$("ins-modal").addEventListener("click", (e) => { if (e.target === $("ins-modal")) closeReview(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("ins-modal").style.display === "flex") closeReview(); });
 
 $("nav-insights").addEventListener("click", (e) => { e.preventDefault(); showInsights(); });
 $("insights-refresh").addEventListener("click", () => loadInsights($("insights-scope").value || "overall"));

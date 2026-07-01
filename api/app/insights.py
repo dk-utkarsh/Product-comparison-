@@ -20,8 +20,18 @@ MARGIN = 25.0          # ±₹25 = "same price" (flat, not %, per product owner'
 _MIN_CONF = 0.7        # a shown/verified competitor match (mirrors the UI)
 
 
-def _shown_prices(competitors: list[dict], hidden_ids: set[str]) -> list[dict]:
-    """Verified competitor prices for a product, EXCLUDING hidden ones."""
+def _key(name: str) -> str:
+    """Canonical product key — MUST match how the review endpoint stores confirmed
+    matches (routes/reviews._confirm_key), else hidden/kept lookups silently miss.
+    normalize_for_match keeps case, so lower()+strip() here like the store does."""
+    return normalize_for_match(name).lower().strip()
+
+
+def _shown_prices(competitors: list[dict], hidden_ids: set[str],
+                  kept_ids: set[str]) -> list[dict]:
+    """Verified competitor prices for a product, EXCLUDING hidden ones. Each entry is
+    tagged `kept` when the user has confirmed it correct (label=correct) — used so a
+    kept extreme-gap competitor no longer trips the mismatch 'review' flag."""
     out: list[dict] = []
     for c in competitors or []:
         cid = c.get("competitor_id")
@@ -32,7 +42,8 @@ def _shown_prices(competitors: list[dict], hidden_ids: set[str]) -> list[dict]:
             continue
         p = float(price)
         if p > 0:
-            out.append({"id": cid, "price": p, "url": c.get("matched_url")})
+            out.append({"id": cid, "price": p, "url": c.get("matched_url"),
+                        "kept": cid in kept_ids})
     return out
 
 
@@ -54,13 +65,16 @@ def dedup_latest(items: list[dict]) -> list[dict]:
     for it in items:
         res = it.get("result") or {}
         name = (res.get("dentalkart") or {}).get("name") or it.get("name") or ""
-        seen[normalize_for_match(name)] = it
+        seen[_key(name)] = it
     return list(seen.values())
 
 
-def compute(items: list[dict], hidden: dict[str, set[str]]) -> dict[str, Any]:
-    """Bucket a set of results. `items` = [{name, result}] (already de-duped for
-    Overall). Returns KPIs + per-bucket product lists for the drill-downs."""
+def compute(items: list[dict], hidden: dict[str, set[str]],
+            kept: dict[str, set[str]] | None = None) -> dict[str, Any]:
+    """Bucket a set of results. `items` = [{name, result, run_id}] (already de-duped
+    for Overall). `kept` = human-confirmed matches, so a KEEP clears the review flag.
+    Returns KPIs + per-bucket product lists for the drill-downs."""
+    kept = kept or {}
     buckets: dict[str, list[dict]] = {
         "overpriced": [], "cheapest": [], "parity": [], "monopoly": []}
     skipped_no_dk = 0
@@ -73,13 +87,15 @@ def compute(items: list[dict], hidden: dict[str, set[str]]) -> dict[str, Any]:
             skipped_no_dk += 1
             continue
         dk = float(dk)
-        hidden_ids = hidden.get(normalize_for_match(name), set())
-        comps = _shown_prices(res.get("competitors", []), hidden_ids)
+        key = _key(name)
+        comps = _shown_prices(res.get("competitors", []),
+                              hidden.get(key, set()), kept.get(key, set()))
         prices = [c["price"] for c in comps]
         b = _bucket(dk, prices)
         entry: dict[str, Any] = {
             "name": name, "dk": round(dk), "dk_url": dkm.get("matched_url") or "",
             "n_comp": len(prices), "competitors": comps,
+            "run_id": it.get("run_id"),   # source compare → deep-link to review it
         }
         if prices:
             entry["min"] = round(min(prices))
@@ -87,8 +103,12 @@ def compute(items: list[dict], hidden: dict[str, set[str]]) -> dict[str, Any]:
             # Extreme gap (a competitor ≥2× off DK) is usually a MISMATCH — a
             # different/smaller product read as the same. Flag it for review (still
             # counted in the bucket), and keep it OUT of the ₹ totals so the money
-            # figures aren't distorted. Reviewing (hide the wrong one) recomputes it.
-            entry["review"] = any(max(dk, p) / min(dk, p) >= 2 for p in prices)
+            # figures aren't distorted. A KEPT competitor is human-vouched, so it no
+            # longer trips the flag; hiding the wrong one drops it entirely. Either
+            # way the flag clears once every extreme competitor has been reviewed.
+            entry["review"] = any(
+                max(dk, c["price"]) / min(dk, c["price"]) >= 2
+                for c in comps if not c["kept"])
             if b == "overpriced":
                 entry["cut"] = round(dk - min(prices))       # cut this to match cheapest
             elif b == "cheapest":

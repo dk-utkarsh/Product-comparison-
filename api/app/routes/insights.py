@@ -13,7 +13,7 @@ def insights_overall() -> dict:
     """Buckets across ALL runs on this environment, de-duped to the latest result
     per product. Hidden competitors excluded."""
     items = insights.dedup_latest(run_store.all_run_items())
-    return insights.compute(items, run_store.hidden_map())
+    return insights.compute(items, run_store.hidden_map(), run_store.kept_map())
 
 
 @router.get("/run/{run_id}")
@@ -22,9 +22,9 @@ def insights_run(run_id: int) -> dict:
     run = run_store.get_run(run_id)
     if run is None:
         return {"error": "run not found", "kpis": {}, "buckets": {}}
-    items = [{"name": it.get("name"), "result": it.get("result")}
+    items = [{"name": it.get("name"), "result": it.get("result"), "run_id": run_id}
              for it in run.get("items", []) if it.get("result")]
-    out = insights.compute(items, run_store.hidden_map())
+    out = insights.compute(items, run_store.hidden_map(), run_store.kept_map())
     out["run"] = {"id": run["id"], "started_at": run["started_at"],
                   "trigger": run.get("trigger")}
     return out

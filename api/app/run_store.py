@@ -197,7 +197,7 @@ def all_run_items() -> list[dict[str, Any]]:
             res = json.loads(row["result"])
         except (TypeError, ValueError):
             continue
-        out.append({"name": row["name"], "sku": row["sku"],
+        out.append({"name": row["name"], "sku": row["sku"], "run_id": row["run_id"],
                     "started_at": row["started_at"], "result": res})
     return out
 
@@ -211,6 +211,25 @@ def hidden_map() -> dict[str, set[str]]:
         with _pgc() as c:
             rows = c.execute(
                 "SELECT dk_key, competitor_id FROM confirmed_matches WHERE label='no_match'"
+            ).fetchall()
+        m: dict[str, set[str]] = {}
+        for r in rows:
+            m.setdefault(r["dk_key"], set()).add(r["competitor_id"])
+        return m
+    except Exception:
+        return {}
+
+
+def kept_map() -> dict[str, set[str]]:
+    """{dk_key → {competitor_id, …}} of everything the user has KEPT (label=correct),
+    i.e. human-confirmed real matches. The insights use this so a KEEP on an extreme-
+    gap competitor clears its 'review' flag (a person vouched the big gap is real).
+    From the SHARED Neon store; degrades to empty on a DB blip."""
+    try:
+        _ensure_confirmed()
+        with _pgc() as c:
+            rows = c.execute(
+                "SELECT dk_key, competitor_id FROM confirmed_matches WHERE label='correct'"
             ).fetchall()
         m: dict[str, set[str]] = {}
         for r in rows:

@@ -143,6 +143,48 @@ wire in unused competitor scrapers, run the golden-set eval
 
 ## Log (newest first)
 
+### 2026-07-01 — Pricing Insights dashboard (buckets + KPIs + charts + one-click review)
+
+New **Insights** view (nav tab) — deterministic pricing analytics over stored
+compare results. No AI; pure math on verified competitor prices. Two scopes:
+**Overall** (all runs, latest result per product) and **per-run** (each bulk
+upload). Backed by `app/insights.py` + `/insights/overall` and `/insights/run/{id}`.
+
+**Buckets** (flat **±₹25** = parity, per owner's call — 2% of ₹10k is real money):
+- **overpriced** — a competitor is clearly cheaper → candidates to lower
+- **cheapest** — we beat every verified rival → room to raise
+- **parity** — everyone within ±₹25 → matched
+- **monopoly** — no verified competitor → free pricing power
+
+**Dashboard** (ApexCharts): KPI tiles (analysed / per-bucket % / undercut-exposure ₹
+/ raise-headroom ₹ / need-review), a donut (bucket mix, live total), ₹-opportunity
+bars, and clickable **bucket drill-down tables** — each row DK-linked, with a
+🔍 Google-Shopping link on the exact product name.
+
+**Extreme-gap "review" flag + one-click review loop** (the review workflow the owner
+asked for):
+- A competitor **≥2× off DK** is usually a MISMATCH (different/smaller pack read as
+  the same). Such a product is **flagged ⚠ review** — still counted in its bucket,
+  but held **out of the ₹ totals** so the money figures stay honest.
+- The ⚠ badge is a **button** → opens a modal with that product's **exact stored
+  compare** (from its `run_id`): DK + each competitor's title/price/link, with
+  **✓ Keep / ✗ Hide / ↩ Un-hide** driving the real `/reviews/cell` endpoint.
+  **Hide** the wrong one → flag clears, ₹ recomputes to the honest gap. **Keep** it
+  (gap is genuinely real) → flag clears, its ₹ folds back in. Flag disappears once
+  **every** extreme competitor is reviewed. Modal is self-contained (no homepage
+  `CURRENT_RESULTS` collision); closing it auto-refreshes the insights.
+- Hidden/kept competitors are excluded per-environment (reads shared Neon
+  `confirmed_matches`), so local and prod insights differ by their own review history.
+
+**Bug found + fixed (latent, pre-existing):** insights looked up hidden/kept maps
+with `normalize_for_match(name)` (keeps case) while the review endpoint STORES keys
+as `.lower().strip()` — so **hidden competitors were never actually excluded** from
+insights. Added a shared `insights._key()` matching `_confirm_key`; verified the full
+hide/keep/un-hide round-trip recomputes and restores to baseline.
+
+Verified live: Overall = 379 analysed (overpriced 103 / cheapest 68 / parity 105 /
+monopoly 103), 31 flagged; undercut exposure ₹78,229, raise headroom ₹114,194.
+
 ### 2026-06-30 (pm-2) — Visual result cards, brand-gate fix, pinkblue self-heal, prod live
 
 Built on the morning's work; all pushed (`8c00cec` → `94d9f01`) and **deployed +
