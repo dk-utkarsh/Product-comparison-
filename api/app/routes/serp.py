@@ -85,11 +85,12 @@ async def _confirmed_match(cid: str, cname: str, conf: dict, ref: ProductRecord,
     )
 
 
-def _no_match(cid: str, cname: str, seen: int, note: str | None = None) -> CompetitorMatch:
+def _no_match(cid: str, cname: str, seen: int, note: str | None = None,
+              hidden: bool = False) -> CompetitorMatch:
     return CompetitorMatch(
         competitor_id=cid, competitor_name=cname, candidates_seen=seen,
         matched_name=None, matched_url=None, matched_price=None, matched_image=None,
-        in_stock=None, verdict=None, score=None, cosine=None, note=note,
+        in_stock=None, verdict=None, score=None, cosine=None, note=note, hidden=hidden,
     )
 
 
@@ -285,7 +286,7 @@ async def serp_compare(name: str) -> CompareResult:
                 return cm
             # dead/changed link → fall through to live discovery below
         elif conf and conf.get("label") == "no_match":
-            return _no_match(m["cid"], m["name"], 0, note="Confirmed: not sold here")
+            return _no_match(m["cid"], m["name"], 0, note="Confirmed: not sold here", hidden=True)
         if not m["on_shopping"]:
             return _no_match(m["cid"], m["name"], 0, note="Not on Google Shopping")
         # Direct (immersive) url first, then the free organic candidates.

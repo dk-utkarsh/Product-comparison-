@@ -100,6 +100,7 @@ class CellConfirm(BaseModel):
     matched_name: str | None = None
     correct: bool          # True = this match is right (remember it);
     #                        False = wrong, don't show this competitor for this name
+    unhide: bool = False   # True = FORGET a prior keep/hide → search normally again
 
 
 @router.post("/cell")
@@ -107,11 +108,17 @@ def confirm_cell(req: CellConfirm) -> dict:
     """Act on a single competitor cell. correct=True remembers the link (reused +
     re-priced next time); correct=False stores a NO-MATCH so this competitor is no
     longer shown for this product (kills a wrong/foreign listing like the flagged
-    'Root ZX Mini' on a 'ZX Apex Locator Accessories' search)."""
+    'Root ZX Mini' on a 'ZX Apex Locator Accessories' search). unhide=True FORGETS
+    the remembered answer entirely, so the next run discovers this competitor
+    normally like any other product."""
     run_store.init_db()
     key = _confirm_key(req.product)
     if not key:
         return {"status": "skip"}
+    if req.unhide:
+        run_store.clear_confirmed(key, req.competitor_id)
+        log.info("cell-unhide", product=req.product, competitor=req.competitor_id)
+        return {"status": "ok", "label": "cleared"}
     tz = ZoneInfo(get_settings().scheduled_run_tz)
     now = datetime.now(tz).isoformat(timespec="seconds")
     label = "correct" if req.correct else "no_match"

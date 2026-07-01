@@ -580,6 +580,10 @@
     .pcard-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
     .pcard-empty { color: var(--ink-mute); font-size: 13px; padding: 6px 0; }
     .pcard-detail { margin-top: 14px; border-top: 1px dashed var(--rule-2); padding-top: 14px; }
+    .hidden-badge { font-size: 11px; color: #92400e; background: #fff7ed; border: 1px solid #fcd34d; padding: 3px 10px; border-radius: 999px; font-weight: 600; }
+    .hidden-block { margin-top: 14px; padding: 12px 14px; background: var(--canvas); border: 1px dashed var(--rule-2); border-radius: 10px; }
+    .hidden-block-title { font-size: 12px; color: var(--ink-mute); font-weight: 600; margin-bottom: 9px; }
+    .hidden-item { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; background: var(--paper); border: 1px solid var(--rule); border-radius: 999px; padding: 3px 6px 3px 12px; margin: 0 7px 7px 0; color: var(--ink); }
 
     /* ── Scheduled-run list cards ── */
     .run-list { display: flex; flex-direction: column; gap: 10px; }
@@ -1357,6 +1361,9 @@ function productCardHTML(r, i) {
       <div class="pcard-actions">
         <button class="btn-ghost" id="insight-btn-${i}" onclick="toggleInsight(${i})"
           style="font-size:12px;padding:4px 12px;">＋ Competitor details &amp; insight</button>
+        ${(r.competitors || []).filter((c) => c.hidden).length
+          ? `<span class="hidden-badge" title="You hid these; open details to show / un-hide">🚫 ${(r.competitors || []).filter((c) => c.hidden).length} hidden</span>`
+          : ""}
       </div>
       <div class="pcard-detail" id="insight-row-${i}" style="display:none;">
         <div id="insight-body-${i}"></div>
@@ -1371,13 +1378,50 @@ function productDetailHTML(r) {
   const dkPrice = r.dentalkart_match?.matched_price ?? null;
   const dkUrl = r.dentalkart_match?.matched_url ?? null;
   const comps = r.competitors || [];
-  const head = `<th>Dentalkart</th>${comps.map((c) => `<th>${enc(c.competitor_name || c.competitor_id)}</th>`).join("")}`;
+  // Competitors the user ✗-hid are NOT shown in the table — only listed below with
+  // an un-hide control (un-hiding makes the next run search them normally again).
+  const visible = comps.filter((c) => !c.hidden);
+  const hidden = comps.filter((c) => c.hidden);
+  const head = `<th>Dentalkart</th>${visible.map((c) => `<th>${enc(c.competitor_name || c.competitor_id)}</th>`).join("")}`;
   const cells = cellHtml(r.dentalkart_match, true, searchTerm, dkPrice, dkUrl) +
-    comps.map((c) => cellHtml(c, false, searchTerm, dkPrice, dkUrl)).join("");
+    visible.map((c) => cellHtml(c, false, searchTerm, dkPrice, dkUrl)).join("");
+  const hiddenBlock = hidden.length ? `
+    <div class="hidden-block">
+      <div class="hidden-block-title">🚫 Hidden by you (${hidden.length}) — not searched on the next run</div>
+      ${hidden.map((c) => {
+        const uid = "uh-" + Math.random().toString(36).slice(2);
+        const payload = enc(JSON.stringify({ product: searchTerm, competitor_id: c.competitor_id }));
+        return `<span class="hidden-item" id="${uid}" data-payload='${payload}'>
+          ${enc(c.competitor_name || c.competitor_id)}
+          <button class="cc-btn keep" onclick="unhideCell('${uid}')" title="Search this competitor normally again on the next run">↩ un-hide</button>
+        </span>`;
+      }).join("")}
+    </div>` : "";
   return `<div style="overflow-x:auto;">
       <table class="compare-table"><thead><tr>${head}</tr></thead><tbody><tr>${cells}</tr></tbody></table>
-    </div>`;
+    </div>${hiddenBlock}`;
 }
+
+async function unhideCell(uid) {
+  const el = document.getElementById(uid);
+  if (!el) return;
+  let payload;
+  try { payload = JSON.parse(el.getAttribute("data-payload")); } catch { return; }
+  const prev = el.innerHTML;
+  el.innerHTML = `<span style="font-size:11px;color:var(--ink-mute);">un-hiding…</span>`;
+  try {
+    const res = await fetch("/reviews/cell", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...payload, correct: false, unhide: true }),
+    });
+    if (!res.ok) throw new Error("http " + res.status);
+    el.innerHTML = `<span style="font-size:11px;color:#0a7d4f;font-weight:600;">↩ un-hidden — searched normally next run</span>`;
+  } catch (e) {
+    el.innerHTML = prev;
+    logLine("unhide failed: " + e.message);
+  }
+}
+window.unhideCell = unhideCell;
 
 function compareCardsHTML(results) {
   CURRENT_RESULTS = results;

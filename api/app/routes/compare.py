@@ -80,6 +80,7 @@ class CompetitorMatch(BaseModel):
     note: str | None = None        # e.g. "Not on Google Shopping" (serp path gate)
     needs_review: bool = False     # auto-flagged for a human look
     review_flags: list[str] = []   # why it was flagged
+    hidden: bool = False           # user ✗-hid this competitor for this product
 
 
 class CompareResult(BaseModel):
