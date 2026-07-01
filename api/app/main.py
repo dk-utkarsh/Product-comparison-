@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from app.routes import compare as compare_route
 from app.routes import feedback as feedback_route
 from app.routes import golden as golden_route
+from app.routes import insights as insights_route
 from app.routes import match as match_route
 from app.routes import reviews as reviews_route
 from app.routes import runs as runs_route
@@ -33,6 +34,7 @@ app.include_router(feedback_route.router)
 app.include_router(golden_route.router)
 app.include_router(runs_route.router)
 app.include_router(reviews_route.router)
+app.include_router(insights_route.router)
 app.include_router(serp_route.router)
 app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
 

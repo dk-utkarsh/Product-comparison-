@@ -182,6 +182,44 @@ def get_run(run_id: int) -> dict[str, Any] | None:
     return out
 
 
+def all_run_items() -> list[dict[str, Any]]:
+    """Every run_item with a result, oldest→newest (by run start), for the pricing
+    insights. Powers the OVERALL view (de-duped to the latest per product upstream)."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT i.run_id, r.started_at, i.sku, i.name, i.result "
+            "FROM run_items i JOIN runs r ON r.id = i.run_id "
+            "WHERE i.result IS NOT NULL ORDER BY r.started_at"
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            res = json.loads(row["result"])
+        except (TypeError, ValueError):
+            continue
+        out.append({"name": row["name"], "sku": row["sku"],
+                    "started_at": row["started_at"], "result": res})
+    return out
+
+
+def hidden_map() -> dict[str, set[str]]:
+    """{dk_key → {competitor_id, …}} of everything the user has HIDDEN (label=
+    no_match), so the insights can exclude those competitors. From the SHARED Neon
+    store; degrades to empty on a DB blip (nothing excluded rather than an error)."""
+    try:
+        _ensure_confirmed()
+        with _pgc() as c:
+            rows = c.execute(
+                "SELECT dk_key, competitor_id FROM confirmed_matches WHERE label='no_match'"
+            ).fetchall()
+        m: dict[str, set[str]] = {}
+        for r in rows:
+            m.setdefault(r["dk_key"], set()).add(r["competitor_id"])
+        return m
+    except Exception:
+        return {}
+
+
 def price_history(name: str) -> list[dict[str, Any]]:
     """Every stored price point for a product (by name), oldest first — DK +
     each competitor (shown matches only) per run that included it. Powers the
