@@ -1347,7 +1347,7 @@ function productCardHTML(r, i) {
   return `
     <div class="pcard ${posClass}">
       <div class="pcard-head">
-        <div class="pcard-title"><span class="pcard-idx">#${i + 1}</span>${enc(searchTerm)}<a class="gshop-link" href="https://www.google.com/search?tbm=shop&q=${encodeURIComponent(searchTerm)}" target="_blank" rel="noopener" data-q="${enc(searchTerm)}" onclick="return openShopping(this)" title="Open Google Shopping docked on the right — side-by-side to cross-check competitors">🛒 Google Shopping ↗</a></div>
+        <div class="pcard-title"><span class="pcard-idx">#${i + 1}</span>${enc(searchTerm)}<a class="gshop-link" href="https://www.google.com/search?tbm=shop&q=${encodeURIComponent(searchTerm)}" target="_blank" rel="noopener" title="Open this exact product on Google Shopping to cross-check competitors">🛒 Google Shopping ↗</a></div>
         <div class="pcard-rv">
           <span style="font-size:11px;color:var(--ink-mute);font-weight:600;">Accuracy:</span>
           <button class="btn-ghost" id="rv-ok-${i}" title="This match is correct"
@@ -1408,32 +1408,6 @@ function productDetailHTML(r) {
       <table class="compare-table"><thead><tr>${head}</tr></thead><tbody><tr>${cells}</tr></tbody></table>
     </div>${hiddenBlock}`;
 }
-
-// Open Google Shopping DOCKED to the right half of the screen, side-by-side with our
-// results. Google can't be embedded in-page (X-Frame-Options), so this is a real
-// browser window positioned on the right; reusing the "gshop_side" window name keeps
-// ONE docked window that just updates as you click different products. Left-click
-// docks; ctrl/middle-click still opens a normal tab via the href fallback.
-function openShopping(el) {
-  const name = (el && el.getAttribute("data-q")) || "";
-  const url = "https://www.google.com/search?tbm=shop&q=" + encodeURIComponent(name);
-  const s = window.screen;
-  const availLeft = s.availLeft || 0, availTop = s.availTop || 0;
-  const w = Math.max(480, Math.floor(s.availWidth / 2));
-  const h = s.availHeight;
-  const left = availLeft + s.availWidth - w;                       // right half
-  // A feature string WITH a size is what makes the browser open a positioned popup
-  // window (not a tab). No 'noopener' — that would force a tab and null the handle.
-  const feats = `width=${w},height=${h},left=${left},top=${availTop},resizable=yes,scrollbars=yes`;
-  const win = window.open(url, "gshop_side", feats);
-  if (win) { win.focus(); try { win.moveTo(left, availTop); win.resizeTo(w, h); } catch (e) {} }
-  else window.open(url, "_blank");                                 // popup blocked → tab
-  // Best-effort: dock OUR window to the left half. Browsers block moving the main
-  // tab, so this is a harmless no-op there (half-snap our window if you want).
-  try { window.moveTo(availLeft, availTop); window.resizeTo(s.availWidth - w, h); } catch (e) { /* blocked */ }
-  return false;
-}
-window.openShopping = openShopping;
 
 async function unhideCell(uid) {
   const el = document.getElementById(uid);
