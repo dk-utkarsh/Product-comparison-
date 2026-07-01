@@ -1177,10 +1177,14 @@ function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null
         ${!isDk ? `<div class="cc-row" id="cc-${fbId}" data-payload='${enc(JSON.stringify({
             product: searchTerm, competitor_id: c.competitor_id,
             matched_url: c.matched_url, matched_name: c.matched_name }))}'>
-          <button class="cc-btn keep" title="Correct — remember this match for next time"
-            onclick="confirmCell('${fbId}', true)">✓ keep</button>
-          <button class="cc-btn hide" title="Wrong — don't show this competitor for this product next time"
-            onclick="confirmCell('${fbId}', false)">✗ hide</button>
+          ${c._kept
+            ? `<span style="font-size:11px;color:#0a7d4f;font-weight:600;">✓ remembered</span>
+               <button class="cc-btn hide" title="Change your mind — hide this instead"
+                 onclick="confirmCell('${fbId}', false)">✗ hide</button>`
+            : `<button class="cc-btn keep" title="Correct — remember this match for next time"
+                 onclick="confirmCell('${fbId}', true)">✓ keep</button>
+               <button class="cc-btn hide" title="Wrong — don't show this competitor for this product next time"
+                 onclick="confirmCell('${fbId}', false)">✗ hide</button>`}
         </div>` : ""}
       </div>
     </div>
@@ -1756,6 +1760,10 @@ async function confirmCell(fbId, correct) {
     });
     if (!res.ok) throw new Error("http " + res.status);
     if (correct) {
+      // Flag it in the data so a later re-render (e.g. after a hide on a sibling)
+      // KEEPS the "✓ remembered" state instead of resetting to keep/hide buttons.
+      const c = findCompetitor(payload.product, payload.competitor_id);
+      if (c) c._kept = true;
       row.innerHTML = `<span style="font-size:11px;color:#0a7d4f;font-weight:600;">✓ remembered</span>`;
     } else {
       // Hide takes effect IMMEDIATELY in the current view — mark it hidden and
@@ -1770,13 +1778,20 @@ async function confirmCell(fbId, correct) {
   }
 }
 
+// Find a competitor object in the current results (for flagging keep/hide in data).
+function findCompetitor(product, competitorId) {
+  const r = (CURRENT_RESULTS || []).find(
+    (r) => r && r.dentalkart && r.dentalkart.name === product);
+  return r ? (r.competitors || []).find((x) => x.competitor_id === competitorId) : null;
+}
+
 // Flip a competitor's hidden flag in the current results, return its product index.
 function setCompetitorHidden(product, competitorId, hidden) {
   const idx = (CURRENT_RESULTS || []).findIndex(
     (r) => r && r.dentalkart && r.dentalkart.name === product);
   if (idx < 0) return -1;
   const c = (CURRENT_RESULTS[idx].competitors || []).find((x) => x.competitor_id === competitorId);
-  if (c) c.hidden = hidden;
+  if (c) { c.hidden = hidden; if (hidden) c._kept = false; }  // hiding overrides a prior keep
   return idx;
 }
 
