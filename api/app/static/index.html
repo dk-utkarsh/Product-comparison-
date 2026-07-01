@@ -1345,7 +1345,7 @@ function productCardHTML(r, i) {
     </div>` : "";
 
   return `
-    <div class="pcard ${posClass}">
+    <div class="pcard ${posClass}" id="pcard-${i}">
       <div class="pcard-head">
         <div class="pcard-title"><span class="pcard-idx">#${i + 1}</span>${enc(searchTerm)}<a class="gshop-link" href="https://www.google.com/search?tbm=shop&q=${encodeURIComponent(searchTerm)}" target="_blank" rel="noopener" title="Open this exact product on Google Shopping to cross-check competitors">🛒 Google Shopping ↗</a></div>
         <div class="pcard-rv">
@@ -1422,7 +1422,10 @@ async function unhideCell(uid) {
       body: JSON.stringify({ ...payload, correct: false, unhide: true }),
     });
     if (!res.ok) throw new Error("http " + res.status);
-    el.innerHTML = `<span style="font-size:11px;color:#0a7d4f;font-weight:600;">↩ un-hidden — searched normally next run</span>`;
+    // Bring it back into the current view immediately.
+    const idx = setCompetitorHidden(payload.product, payload.competitor_id, false);
+    if (idx >= 0) rerenderCard(idx);
+    else el.innerHTML = `<span style="font-size:11px;color:#0a7d4f;font-weight:600;">↩ un-hidden — searched normally next run</span>`;
   } catch (e) {
     el.innerHTML = prev;
     logLine("unhide failed: " + e.message);
@@ -1739,14 +1742,39 @@ async function confirmCell(fbId, correct) {
       body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error("http " + res.status);
-    row.innerHTML = correct
-      ? `<span style="font-size:11px;color:#0a7d4f;font-weight:600;">✓ remembered</span>`
-      : `<span style="font-size:11px;color:#b04a2f;font-weight:600;">✗ hidden next time</span>`;
+    if (correct) {
+      row.innerHTML = `<span style="font-size:11px;color:#0a7d4f;font-weight:600;">✓ remembered</span>`;
+    } else {
+      // Hide takes effect IMMEDIATELY in the current view — mark it hidden and
+      // re-render this product so the competitor moves into the "hidden" section now.
+      const idx = setCompetitorHidden(payload.product, payload.competitor_id, true);
+      if (idx >= 0) rerenderCard(idx);
+      else row.innerHTML = `<span style="font-size:11px;color:#b04a2f;font-weight:600;">✗ hidden next time</span>`;
+    }
   } catch (e) {
     row.innerHTML = prev;
     logLine("confirmCell failed: " + e.message);
   }
 }
+
+// Flip a competitor's hidden flag in the current results, return its product index.
+function setCompetitorHidden(product, competitorId, hidden) {
+  const idx = (CURRENT_RESULTS || []).findIndex(
+    (r) => r && r.dentalkart && r.dentalkart.name === product);
+  if (idx < 0) return -1;
+  const c = (CURRENT_RESULTS[idx].competitors || []).find((x) => x.competitor_id === competitorId);
+  if (c) c.hidden = hidden;
+  return idx;
+}
+
+// Re-render one product card in place (keeps its detail open so the user stays put).
+function rerenderCard(i) {
+  const el = document.getElementById("pcard-" + i);
+  if (!el) return;
+  el.outerHTML = productCardHTML(CURRENT_RESULTS[i], i);
+  toggleInsight(i);   // re-open the detail after the fresh render
+}
+window.rerenderCard = rerenderCard;
 window.confirmCell = confirmCell;
 
 async function sendGolden(fbId, label) {
