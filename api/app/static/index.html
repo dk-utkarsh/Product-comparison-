@@ -594,6 +594,10 @@
     .hidden-item { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; background: var(--paper); border: 1px solid var(--rule); border-radius: 999px; padding: 3px 6px 3px 12px; margin: 0 7px 7px 0; color: var(--ink); }
 
     /* ── Scheduled-run list cards ── */
+    .serp-quota { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--brand-tint); color: var(--brand-deep); white-space: nowrap; }
+    .serp-quota.low { background: #fef3c7; color: #854d0e; }
+    .serp-quota.empty { background: var(--rust-tint); color: #7f1d1d; }
+    .serp-quota.off { background: var(--canvas); color: var(--ink-mute); font-weight: 500; }
     .run-list { display: flex; flex-direction: column; gap: 10px; }
     .run-card {
       display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
@@ -826,6 +830,7 @@
             </span>
             🔍 Google
           </label>
+          <span id="serp-quota" class="serp-quota" title="Google (SerpAPI) searches left this month">🔍 …</span>
           <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-mute);">
             products
             <input id="runCount" type="number" min="1" max="200" value="50" style="width:64px;padding:6px 8px;" title="How many products this run pulls (watchlist + random). Max 200." />
@@ -1874,7 +1879,26 @@ let RUNS_ALL = [];
 let RUNS_PAGE = 0;
 const RUNS_PER_PAGE = 10;
 
+// SerpAPI (Google) credits badge. Refreshed whenever the runs list is (re)loaded —
+// on opening the page, ↻ Refresh, and after each run via the poll loop — so it
+// reflects the latest remaining searches. Not a live ticker; it's a fresh fetch each
+// time the list updates (SerpAPI's own usage counter updates in near real time).
+async function loadSerpQuota() {
+  const el = $("serp-quota");
+  if (!el) return;
+  try {
+    const d = await (await fetch("/serp/quota")).json();
+    if (!d.enabled) { el.textContent = "Google off"; el.className = "serp-quota off"; return; }
+    if (d.error || d.left == null) { el.textContent = "🔍 quota ?"; el.className = "serp-quota"; el.title = "Couldn't read SerpAPI quota"; return; }
+    const total = d.total || 250;
+    el.textContent = `🔍 ${d.left}/${total} left`;
+    el.className = "serp-quota " + (d.left <= 0 ? "empty" : d.left < total * 0.15 ? "low" : "");
+    el.title = `Google searches (SerpAPI): ${d.used} used of ${total} this month${d.plan ? " · " + d.plan : ""}`;
+  } catch { el.textContent = ""; }
+}
+
 async function loadRuns() {
+  loadSerpQuota();
   if (!RUNS_ALL.length) $("runs-list").innerHTML = `<div class="status-msg">Loading runs…</div>`;
   try {
     const data = await (await fetch("/runs")).json();

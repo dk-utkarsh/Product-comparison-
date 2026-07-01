@@ -35,7 +35,31 @@ _KNOWN_CIDS: frozenset[str] = frozenset({"dentalkart", "pinkblue", "oralkart", "
 # user keeps seeing them with a "Not on Google Shopping" note). DK is the anchor.
 _BASELINE_CIDS: tuple[str, ...] = ("pinkblue", "oralkart", "dentmark")
 _ENDPOINT = "https://serpapi.com/search.json"
+_ACCOUNT_ENDPOINT = "https://serpapi.com/account"
 _TIMEOUT_S = 60.0
+
+
+async def serpapi_quota() -> dict:
+    """Live SerpAPI monthly quota for the configured key (for the UI credits badge).
+    {left, used, total, plan}. `enabled` reflects SERP_ENABLED + a key being set."""
+    s = get_settings()
+    out: dict = {"enabled": bool(s.serp_enabled and s.serpapi_key)}
+    if not s.serpapi_key:
+        return out
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(_ACCOUNT_ENDPOINT, params={"api_key": s.serpapi_key})
+            r.raise_for_status()
+            d = r.json()
+        out.update(
+            left=d.get("total_searches_left"),
+            used=d.get("this_month_usage"),
+            total=d.get("searches_per_month"),
+            plan=d.get("plan_name"),
+        )
+    except Exception:
+        out["error"] = True
+    return out
 
 # URL fragments that mark a NON-product page (category / listing / brand / search).
 _NON_PDP = (

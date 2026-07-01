@@ -244,6 +244,12 @@ async def serp_urls(name: str) -> dict:
     return {"name": name, "urls": await serp.serp_product_urls(name)}
 
 
+@router.get("/quota")
+async def serp_quota() -> dict:
+    """Live SerpAPI monthly quota for the UI credits badge (key stays server-side)."""
+    return await serp.serpapi_quota()
+
+
 @router.get("/compare", response_model=CompareResult)
 async def serp_compare(name: str) -> CompareResult:
     # DentalKart anchor — resolve via OUR OWN DK search, NOT Google. Google's
