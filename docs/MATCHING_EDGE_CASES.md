@@ -114,6 +114,14 @@ the suite); extraction cases are harder to unit-test (live HTML) so they live he
     dentganga). thedentistshop ships a `//` comment in its Product block.
 21. **Price fallbacks** — JSON-LD offers → `product:price:amount` / `og:price:amount`
     / `itemprop=price` (content or text). Name fallbacks: og:title → <title> → <h1>.
+21a. **Offer keys read CASE-INSENSITIVELY** — real sites ship non-standard casings:
+    dentganga's `AggregateOffer` uses `lowprice`/`highprice` (all lowercase) instead
+    of schema.org `lowPrice`/`highPrice`, so a strict lookup saw no price →
+    "couldn't verify" despite a valid offer. `ciGet()` matches keys case-insensitively
+    (price / lowPrice / highPrice / priceCurrency / availability). dentganga → ₹1390
+    (lowprice) / ₹3092 (highprice). Also note: dentganga ships a control char in the
+    JSON-LD (salvaged, case F-20) and has NO ₹ price in the HTML (JS-only), so the
+    JSON-LD offer is the ONLY price source.
 22. **NO body-text price scraping** — deliberately removed; on real pages it grabs
     the struck-through MRP or concatenates digits (dentalstores → "2500024"). A
     wrong price is worse than none.

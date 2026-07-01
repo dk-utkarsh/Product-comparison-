@@ -35,6 +35,20 @@ function num(v: unknown): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+/** Read a key from a JSON-LD object CASE-INSENSITIVELY — real sites ship
+ *  non-standard casings (e.g. dentganga's `lowprice`/`highprice` instead of
+ *  schema.org `lowPrice`/`highPrice`), which a strict key lookup silently misses.
+ *  Returns the first non-empty match for the given candidate keys. */
+function ciGet(obj: Record<string, unknown>, ...keys: string[]): unknown {
+  const lower: Record<string, unknown> = {};
+  for (const k of Object.keys(obj)) lower[k.toLowerCase()] = obj[k];
+  for (const k of keys) {
+    const v = lower[k.toLowerCase()];
+    if (v != null && v !== "") return v;
+  }
+  return undefined;
+}
+
 /* schema.org `image` may be a URL string, an array of URLs, an ImageObject
  * ({"@type":"ImageObject","url":…}), or an array of ImageObjects (WooCommerce/
  * Yoast ship the latter). A naive String() on an object yields the literal
@@ -213,10 +227,12 @@ export function parsePdpHtml(html: string): PdpData | null {
       | Record<string, unknown>
       | undefined;
     if (offer) {
-      price = num(offer.price ?? offer.lowPrice);
-      mrp = num(offer.highPrice) || price;
-      currency = String(offer.priceCurrency ?? "").toUpperCase();
-      const avail = String(offer.availability ?? "");
+      // Case-insensitive so non-standard casings (dentganga AggregateOffer
+      // `lowprice`/`highprice`) are still read.
+      price = num(ciGet(offer, "price", "lowPrice"));
+      mrp = num(ciGet(offer, "highPrice")) || price;
+      currency = String(ciGet(offer, "priceCurrency") ?? "").toUpperCase();
+      const avail = String(ciGet(offer, "availability") ?? "");
       if (avail) inStock = /InStock/i.test(avail);
     }
   }
