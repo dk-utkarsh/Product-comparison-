@@ -587,7 +587,8 @@
     .pcard-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
     .pcard-empty { color: var(--ink-mute); font-size: 13px; padding: 6px 0; }
     .pcard-detail { margin-top: 14px; border-top: 1px dashed var(--rule-2); padding-top: 14px; }
-    .hidden-badge { font-size: 11px; color: #92400e; background: #fff7ed; border: 1px solid #fcd34d; padding: 3px 10px; border-radius: 999px; font-weight: 600; }
+    .hidden-badge { font-family: inherit; font-size: 11px; color: #92400e; background: #fff7ed; border: 1px solid #fcd34d; padding: 3px 10px; border-radius: 999px; font-weight: 600; cursor: pointer; transition: background .12s ease; }
+    .hidden-badge:hover { background: #fde68a; }
     .hidden-block { margin-top: 14px; padding: 12px 14px; background: var(--canvas); border: 1px dashed var(--rule-2); border-radius: 10px; }
     .hidden-block-title { font-size: 12px; color: var(--ink-mute); font-weight: 600; margin-bottom: 9px; }
     .hidden-item { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; background: var(--paper); border: 1px solid var(--rule); border-radius: 999px; padding: 3px 6px 3px 12px; margin: 0 7px 7px 0; color: var(--ink); }
@@ -1369,7 +1370,7 @@ function productCardHTML(r, i) {
         <button class="btn-ghost" id="insight-btn-${i}" onclick="toggleInsight(${i})"
           style="font-size:12px;padding:4px 12px;">＋ Competitor details &amp; insight</button>
         ${(r.competitors || []).filter((c) => c.hidden).length
-          ? `<span class="hidden-badge" title="You hid these; open details to show / un-hide">🚫 ${(r.competitors || []).filter((c) => c.hidden).length} hidden</span>`
+          ? `<button class="hidden-badge" title="Click to show / un-hide these" onclick="openHidden(${i})">🚫 ${(r.competitors || []).filter((c) => c.hidden).length} hidden — show</button>`
           : ""}
       </div>
       <div class="pcard-detail" id="insight-row-${i}" style="display:none;">
@@ -1408,6 +1409,18 @@ function productDetailHTML(r) {
       <table class="compare-table"><thead><tr>${head}</tr></thead><tbody><tr>${cells}</tr></tbody></table>
     </div>${hiddenBlock}`;
 }
+
+// Open the card's detail and scroll to the "Hidden by you" block (where un-hide is).
+function openHidden(i) {
+  const row = document.getElementById("insight-row-" + i);
+  if (row && row.style.display === "none") toggleInsight(i);
+  setTimeout(() => {
+    const body = document.getElementById("insight-body-" + i);
+    const block = body && body.querySelector(".hidden-block");
+    if (block) block.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 60);
+}
+window.openHidden = openHidden;
 
 async function unhideCell(uid) {
   const el = document.getElementById(uid);
