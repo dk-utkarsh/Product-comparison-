@@ -1422,8 +1422,11 @@ function openShopping(el) {
   const w = Math.max(480, Math.floor(s.availWidth / 2));
   const h = s.availHeight;
   const left = availLeft + s.availWidth - w;                       // right half
-  const win = window.open(url, "gshop_side", `popup=yes,width=${w},height=${h},left=${left},top=${availTop}`);
-  if (win) win.focus();
+  // A feature string WITH a size is what makes the browser open a positioned popup
+  // window (not a tab). No 'noopener' — that would force a tab and null the handle.
+  const feats = `width=${w},height=${h},left=${left},top=${availTop},resizable=yes,scrollbars=yes`;
+  const win = window.open(url, "gshop_side", feats);
+  if (win) { win.focus(); try { win.moveTo(left, availTop); win.resizeTo(w, h); } catch (e) {} }
   else window.open(url, "_blank");                                 // popup blocked → tab
   // Best-effort: dock OUR window to the left half. Browsers block moving the main
   // tab, so this is a harmless no-op there (half-snap our window if you want).
