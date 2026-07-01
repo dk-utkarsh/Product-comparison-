@@ -185,6 +185,18 @@ hide/keep/un-hide round-trip recomputes and restores to baseline.
 Verified live: Overall = 379 analysed (overpriced 103 / cheapest 68 / parity 105 /
 monopoly 103), 31 flagged; undercut exposure ₹78,229, raise headroom ₹114,194.
 
+**Shipped & deployed to prod** (`fada67f` + `cc6470a`, auto-deployed via GitHub
+Actions → droplet). Prod verified on the new build; prod insights analysed=11
+(its own per-environment run history — expected, hybrid SQLite runs + shared Neon
+keep/hide). **Auth note:** GitHub pushes from this machine authenticate via the PAT
+stored in the local macOS **Keychain** (git credential helper) — the token is NOT in
+the repo (committing it would trip GitHub secret-scanning and auto-revoke it). Rotate
+the PAT periodically.
+
+**Next up (tomorrow):** feature is complete; optional follow-ons if wanted —
+(a) CSV export of a bucket/board for the pricing team, (b) open the review modal from
+ANY drill-down row (not only flagged), (c) bucket/price trend across runs.
+
 ### 2026-06-30 (pm-2) — Visual result cards, brand-gate fix, pinkblue self-heal, prod live
 
 Built on the morning's work; all pushed (`8c00cec` → `94d9f01`) and **deployed +
