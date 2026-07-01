@@ -53,21 +53,6 @@ GATE_CASES = [
     # Distinctive coined product LINE substitutes for the dropped manufacturer.
     ("3M ESPE Ketac Molar Glass Ionomer", "Ketac Molar", True, "distinctive line Ketac"),
     ("GC Fuji IX GP Glass Ionomer", "Fuji IX GP", True, "distinctive line Fuji"),
-    # Same brand + family, DIFFERENT product LINE → reject. Shares "3m espe ketac" +
-    # generic "glass ionomer restorative", but molar ≠ universal is the real product
-    # (Ketac Molar posterior restorative vs Ketac Universal). Pack also differs
-    # (15g vs 12.5g), but the line word alone must reject.
-    ("3M ESPE Ketac Molar Glass Ionomer Restorative Cement - Shade A3 (15g Powder)",
-     "3m Espe Ketac Universal Glass Ionomer Restorative", False, "Ketac Molar ≠ Ketac Universal"),
-    # …but a mere descriptor difference after the SAME line still matches.
-    ("3M ESPE Ketac Molar Glass Ionomer Restorative", "3M ESPE Ketac Molar GI Filling Cement",
-     True, "same line Ketac Molar, restorative≈filling descriptor"),
-    # CONTENT amount is part of identity: a 15g pack ≠ a 12.5g pack (same line). Per
-    # unit, dominant amount, ~12% tolerance so 7.8 vs 8.5 ml is still the same.
-    ("GC Fuji IX GP 15g Powder 8mL Liquid", "GC Fuji IX GP 12.5g Powder 8mL Liquid",
-     False, "15g ≠ 12.5g powder content"),
-    ("GC Fuji IX GP 15g Powder 7.8mL Liquid", "GC Fuji IX GP 15 g Powder 8.5 mL Liquid",
-     True, "same 15g; 7.8 vs 8.5 mL within tolerance"),
     # Brand spelled with/without spaces/hyphens is the SAME brand…
     ("Oracraft Tissue Plier - TP37", "Ora Craft Tissue Plier Angular 11.5cm TP37",
      True, "Oracraft == Ora Craft (spacing)"),

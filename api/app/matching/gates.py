@@ -98,55 +98,6 @@ _GENERIC_TYPES: frozenset[str] = frozenset({
     "columbia", "nabers", "barnhart", "morse", "goldman",
 })
 
-# Product-CATEGORY / material words — describe the KIND of product, never WHICH one,
-# so they're not distinctive (a shared category is not a shared identity). Used to
-# stop "glass ionomer restorative" shared between different lines (Ketac Molar vs
-# Ketac Universal) from masking the real line difference.
-_CATEGORY_WORDS: frozenset[str] = frozenset({
-    "glass", "ionomer", "restorative", "restoration", "cement", "filling", "composite",
-    "resin", "luting", "lining", "liner", "sealant", "varnish", "material", "dental",
-    "gic", "rmgic", "compomer", "flowable", "packable", "microhybrid", "nanohybrid",
-})
-
-# CONTENT quantity — the actual amount in the pack (powder grams, liquid millilitres,
-# …). A different content = a different product, even under the same brand + line
-# (DK "15g Powder + 7.8mL Liquid" ≠ a "12.5 g Powder + 8.5 ml Liquid" pack). We read
-# every weight/volume quantity and compare the DOMINANT (max) amount per unit; a
-# relative gap beyond tolerance is a content mismatch. Dimension units (mm/cm/m) are
-# deliberately excluded — those are sizes handled elsewhere, not pack content.
-_CONTENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(gms|gm|grams|gram|kg|mg|ml|oz|g)\b", re.I)
-_CONTENT_TOL = 0.12  # ≤12% apart = the same amount (7.8 vs 8.5 ml); 15 vs 12.5 g fails
-
-
-def _content_quantities(text: str) -> dict[str, float]:
-    """Max weight/volume amount per normalised unit found in the text."""
-    out: dict[str, float] = {}
-    for val, unit in _CONTENT_RE.findall(text.lower()):
-        u = unit.lower()
-        u = "g" if u in ("g", "gm", "gms", "gram", "grams") else u
-        try:
-            v = float(val)
-        except ValueError:
-            continue
-        if v > 0:
-            out[u] = max(out.get(u, 0.0), v)
-    return out
-
-
-def _content_mismatch(search: str, found: str) -> tuple[bool, str]:
-    """True when both sides state a content amount in the SAME unit but the dominant
-    amounts differ beyond tolerance (→ different pack / product). Fires only when the
-    unit is present on BOTH sides (one-sided or absent content never gates)."""
-    s = _content_quantities(search)
-    f = _content_quantities(found)
-    for unit in set(s) & set(f):
-        sv, fv = s[unit], f[unit]
-        hi = max(sv, fv) or 1.0
-        if abs(sv - fv) / hi > _CONTENT_TOL:
-            g = lambda x: f"{x:g}"  # noqa: E731
-            return True, f"content mismatch: {g(sv)}{unit} vs {g(fv)}{unit}"
-    return False, ""
-
 
 def _shared_prefix(search: str, found: str) -> set[str]:
     """The leading run of identical words — the brand + product-line zone, which
@@ -171,23 +122,19 @@ def _no_shared_distinctive(search: str, found: str) -> bool:
     sb, fb = extract_brand(search), extract_brand(found)
     s_tok = distinguishing_tokens(search)
     f_tok = distinguishing_tokens(found)
-    # Strip the shared leading run (the common brand + product-FAMILY zone). We used
-    # to keep it when ≥3 words matched, assuming that meant "same product" — but that
-    # masked the LINE word diverging right after: "3M ESPE Ketac **Molar**" vs "3M
-    # ESPE Ketac **Universal**" share "3m espe ketac" (3 words) yet are different
-    # products. Always strip the identical prefix; the category-word drop below keeps
-    # legitimate descriptor-only differences ("… Restorative" vs "… Filling") matching.
+    # Strip the shared leading words ONLY when they're just the brand zone (≤2
+    # words). If two names share 3+ leading words they share the real product
+    # identity ("3M ESPE Ketac Molar" — restorative vs filling are then just
+    # descriptors and must still match), so we leave the prefix in.
     prefix = _shared_prefix(search, found)
+    if len(prefix) > 2:
+        prefix = set()
     # Only DROP a generic noun (pouch/box/kit/tray…) when BOTH names share it —
     # then it's incidental packaging ("Maarc Eazy Tray" vs "Maarc Tray Adeziv",
     # both trays). A generic noun that DIFFERS between the two ("Reel" vs "Pouch")
     # IS the product's identity and must stay as a distinctive token.
     shared_generic = s_tok & f_tok & _GENERIC_NOUNS
-    # Product-CATEGORY / material words describe what KIND of product it is, not WHICH
-    # one — never distinctive, so drop from both sides. Without this, "glass ionomer
-    # restorative" shared between "Ketac Molar" and "Ketac Universal" would look like a
-    # shared identity and hide that molar≠universal.
-    drop = {sb, fb} | prefix | shared_generic | _CATEGORY_WORDS
+    drop = {sb, fb} | prefix | shared_generic
     # Stem so plurals match (reels == reel, discs == disc).
     s_dist = {_stem(w) for w in s_tok - drop}
     f_dist = {_stem(w) for w in f_tok - drop}
@@ -471,12 +418,6 @@ def gate_check(search: str, found: str, found_desc: str = "") -> GateResult:
 
     if s_attrs.shade and f_attrs.shade and s_attrs.shade != f_attrs.shade:
         return GateResult(False, f"shade mismatch: {s_attrs.shade} vs {f_attrs.shade}")
-
-    # Content amount (powder g / liquid ml …). The competitor's amount often lives in
-    # its DESCRIPTION, not its title, so include found_desc.
-    bad_qty, qty_reason = _content_mismatch(search, found + " " + found_desc)
-    if bad_qty:
-        return GateResult(False, qty_reason)
 
     # Colour variant: same item in a different colour is a different product
     # ("Kalabhai Ultra Rock Die (Brown)" ≠ "(Yellow)"). Fire only when BOTH names
