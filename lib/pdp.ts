@@ -40,6 +40,7 @@ function num(v: unknown): number {
  *  schema.org `lowPrice`/`highPrice`), which a strict key lookup silently misses.
  *  Returns the first non-empty match for the given candidate keys. */
 function ciGet(obj: Record<string, unknown>, ...keys: string[]): unknown {
+  if (!obj || typeof obj !== "object") return undefined;
   const lower: Record<string, unknown> = {};
   for (const k of Object.keys(obj)) lower[k.toLowerCase()] = obj[k];
   for (const k of keys) {
@@ -47,6 +48,48 @@ function ciGet(obj: Record<string, unknown>, ...keys: string[]): unknown {
     if (v != null && v !== "") return v;
   }
   return undefined;
+}
+
+/** Robustly pull price / mrp / currency / stock from a JSON-LD `offers` value —
+ *  tolerant of the ways real sites deviate from the schema.org shape:
+ *   - `offers` may be a single Offer/AggregateOffer OR an array of sellers → scan
+ *     for the first entry that yields a positive price.
+ *   - keys in ANY casing (dentganga `lowprice`/`highprice`).
+ *   - price nested in `priceSpecification` (schema.org's other legal location) —
+ *     itself possibly an array / oddly cased.
+ *  Returns zeros when no positive price is found (page stays unverified). */
+function readOffer(offersRaw: unknown): {
+  price: number; mrp: number; currency: string; inStock: boolean | null;
+} {
+  const list = Array.isArray(offersRaw) ? offersRaw : offersRaw ? [offersRaw] : [];
+  for (const o of list) {
+    if (!o || typeof o !== "object") continue;
+    const offer = o as Record<string, unknown>;
+    let price = num(ciGet(offer, "price", "lowPrice"));
+    let mrp = num(ciGet(offer, "highPrice"));
+    if (!price) {
+      // Nested priceSpecification (Offer.priceSpecification.price / minPrice).
+      const specRaw = ciGet(offer, "priceSpecification");
+      const specs = Array.isArray(specRaw) ? specRaw : specRaw ? [specRaw] : [];
+      for (const s of specs) {
+        if (s && typeof s === "object") {
+          const spec = s as Record<string, unknown>;
+          price = num(ciGet(spec, "price", "minPrice", "lowPrice"));
+          if (price) { mrp = mrp || num(ciGet(spec, "maxPrice", "highPrice")); break; }
+        }
+      }
+    }
+    if (price > 0) {
+      const avail = String(ciGet(offer, "availability") ?? "");
+      return {
+        price,
+        mrp: mrp > price ? mrp : price,
+        currency: String(ciGet(offer, "priceCurrency") ?? "").toUpperCase(),
+        inStock: avail ? /InStock/i.test(avail) : null,
+      };
+    }
+  }
+  return { price: 0, mrp: 0, currency: "", inStock: null };
 }
 
 /* schema.org `image` may be a URL string, an array of URLs, an ImageObject
@@ -215,26 +258,20 @@ export function parsePdpHtml(html: string): PdpData | null {
   let currency = "";
 
   if (product) {
+    // Read the Product's own fields case-insensitively too (some sites capitalise
+    // them), then pull the price via the tolerant offer reader.
     const p = product as Record<string, unknown>;
-    name = stripHtml(String(p.name ?? ""));
-    description = stripHtml(String(p.description ?? ""));
-    sku = String(p.sku ?? "");
-    const b = p.brand as Record<string, unknown> | string | undefined;
-    brand = typeof b === "object" && b ? String(b.name ?? "") : String(b ?? "");
-    image = jsonLdImageUrl(p.image);
-    const offersRaw = p.offers;
-    const offer = (Array.isArray(offersRaw) ? offersRaw[0] : offersRaw) as
-      | Record<string, unknown>
-      | undefined;
-    if (offer) {
-      // Case-insensitive so non-standard casings (dentganga AggregateOffer
-      // `lowprice`/`highprice`) are still read.
-      price = num(ciGet(offer, "price", "lowPrice"));
-      mrp = num(ciGet(offer, "highPrice")) || price;
-      currency = String(ciGet(offer, "priceCurrency") ?? "").toUpperCase();
-      const avail = String(ciGet(offer, "availability") ?? "");
-      if (avail) inStock = /InStock/i.test(avail);
-    }
+    name = stripHtml(String(ciGet(p, "name") ?? ""));
+    description = stripHtml(String(ciGet(p, "description") ?? ""));
+    sku = String(ciGet(p, "sku", "mpn", "gtin") ?? "");
+    const b = ciGet(p, "brand") as Record<string, unknown> | string | undefined;
+    brand = typeof b === "object" && b ? String(ciGet(b, "name") ?? "") : String(b ?? "");
+    image = jsonLdImageUrl(ciGet(p, "image"));
+    const o = readOffer(ciGet(p, "offers"));
+    price = o.price;
+    mrp = o.mrp;
+    currency = o.currency;
+    inStock = o.inStock;
   }
 
   // og: / meta fallback for anything still missing.
