@@ -1409,7 +1409,7 @@ function productDetailHTML(r) {
         </span>`;
       }).join("")}
     </div>` : "";
-  return `<div style="overflow-x:auto;">
+  return `<div class="detail-scroll" style="overflow-x:auto;">
       <table class="compare-table"><thead><tr>${head}</tr></thead><tbody><tr>${cells}</tr></tbody></table>
     </div>${hiddenBlock}`;
 }
@@ -1795,12 +1795,23 @@ function setCompetitorHidden(product, competitorId, hidden) {
   return idx;
 }
 
-// Re-render one product card in place (keeps its detail open so the user stays put).
+// Re-render one product card in place (keeps its detail open AND preserves scroll,
+// so hiding a competitor doesn't jump the page or reset the horizontal slider).
 function rerenderCard(i) {
   const el = document.getElementById("pcard-" + i);
   if (!el) return;
+  const pageY = window.scrollY;                                  // page scroll
+  const oldBody = document.getElementById("insight-body-" + i);
+  const oldScroller = oldBody && oldBody.querySelector(".detail-scroll");
+  const hScroll = oldScroller ? oldScroller.scrollLeft : 0;      // horizontal slider
+  const wasOpen = (document.getElementById("insight-row-" + i) || {}).style
+    ? document.getElementById("insight-row-" + i).style.display !== "none" : false;
   el.outerHTML = productCardHTML(CURRENT_RESULTS[i], i);
-  toggleInsight(i);   // re-open the detail after the fresh render
+  if (wasOpen) toggleInsight(i);                                 // re-open only if it was open
+  window.scrollTo(0, pageY);                                     // restore page position
+  const newScroller = (document.getElementById("insight-body-" + i) || document)
+    .querySelector(".detail-scroll");
+  if (newScroller) newScroller.scrollLeft = hScroll;             // restore the slider
 }
 window.rerenderCard = rerenderCard;
 window.confirmCell = confirmCell;
