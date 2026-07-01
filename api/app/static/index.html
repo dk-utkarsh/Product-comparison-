@@ -811,7 +811,6 @@
         <h2>Results <span style="color:var(--ink-mute);font-weight:400;font-size:14px;margin-left:6px;">— matched in <span id="elapsed-time" class="mono">0s</span></span></h2>
         <div class="results-summary" id="summary"></div>
       </div>
-      <div id="pricing-insights"></div>
       <div id="results"></div>
     </div>
   </section>
@@ -820,7 +819,7 @@
   <section class="container reveal" id="runs-section" style="display:none; margin-bottom: 56px;">
     <div class="card results-card">
       <div class="results-head">
-        <h2>Scheduled Runs <span style="color:var(--ink-mute);font-weight:400;font-size:14px;margin-left:6px;">— 5×/day, fresh random SKUs from the catalog</span></h2>
+        <h2>Scheduled Runs <span class="tip" style="margin-left:6px;">ⓘ<span class="tip-box">5×/day, fresh random SKUs from the catalog</span></span></h2>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <span class="results-summary" id="runs-summary"></span>
           <label id="runSerpWrap" style="display:inline-flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;user-select:none;" title="Run each product through Google (SerpAPI) instead of our own search. Quota-limited, so the count is capped to 15.">
@@ -849,7 +848,6 @@
           <span id="run-detail-title">Run</span></h2>
         <div class="results-summary" id="run-detail-summary"></div>
       </div>
-      <div id="run-detail-insights"></div>
       <div id="run-detail"></div>
     </div>
   </section>
@@ -1158,9 +1156,11 @@ function cellHtml(c, isDk = false, searchTerm = "", dkPrice = null, dkUrl = null
 
   const fbId = Math.random().toString(36).slice(2);
   // Status line: confirmed-by-you (green) / review warning (rust) — one line only.
+  // A competitor you've ✓kept is confirmed-correct → never show a review warning.
   const isConfirmed = c.note && c.note.indexOf("Confirmed") === 0;
   let status = "";
-  if (c.note) status = `<span class="cell-tag ${isConfirmed ? "ok" : "mute"}">${enc(c.note)}</span>`;
+  if (c._kept) status = `<span class="cell-tag ok">✓ kept by you</span>`;
+  else if (c.note) status = `<span class="cell-tag ${isConfirmed ? "ok" : "mute"}">${enc(c.note)}</span>`;
   else if (c.needs_review)
     status = `<span class="cell-tag warn" title="${enc((c.review_flags || []).join(" · "))}">⚠ ${enc(c.review_flags[0] || "review")}</span>`;
 
@@ -1528,140 +1528,11 @@ function toggleInsight(i) {
   if (btn) btn.textContent = "－ Hide details";
   const r = CURRENT_RESULTS[i];
   if (!$("insight-body-" + i).dataset.loaded) {
-    $("insight-body-" + i).innerHTML =
-      productDetailHTML(r) +
-      productInsightHTML(r);
+    $("insight-body-" + i).innerHTML = productDetailHTML(r);
     $("insight-body-" + i).dataset.loaded = "1";
   }
 }
 window.toggleInsight = toggleInsight;
-
-function productInsightHTML(r) {
-  const dk = r.dentalkart_match?.matched_price ?? null;
-  const comps = (r.competitors || []).filter(isShownMatch)
-    .map((c) => ({ id: c.competitor_id, price: c.matched_price }));
-  if (dk == null) return `<div class="status-msg">No Dentalkart price for this product.</div>`;
-  if (!comps.length) return `<div class="status-msg">No competitor match — nothing to compare for this product.</div>`;
-  const prices = comps.map((c) => c.price);
-  const maxC = Math.max(...prices), minC = Math.min(...prices);
-  const pos = dk < minC ? `<span class="pill emerald">DK is cheapest</span>`
-    : dk > maxC ? `<span class="pill rust">DK is most expensive</span>`
-    : `<span class="pill">DK is mid-priced</span>`;
-  const headroom = dk < maxC ? Math.round(maxC - dk) : 0;
-  const compRows = comps.map((c) => {
-    const d = Math.round(dk - c.price);
-    const tag = d > 0 ? `<span class="delta pricier">DK ₹${Math.abs(d)} higher</span>`
-      : d < 0 ? `<span class="delta cheaper">DK ₹${Math.abs(d)} lower</span>` : `= same`;
-    return `<tr><td>${enc(c.id)}</td><td class="mono">${fmtMoney(c.price)}</td><td>${tag}</td></tr>`;
-  }).join("");
-  return `
-    <div class="card" style="margin:6px 0;">
-      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
-        <strong>Pricing position</strong>
-        ${pos}
-        <span class="pill">DK ${fmtMoney(dk)}</span>
-        ${headroom > 0
-          ? `<span class="pill emerald">Can raise up to +${fmtMoney(headroom)} (stay under ${fmtMoney(maxC)})</span>`
-          : `<span class="pill">No raise headroom</span>`}
-      </div>
-      <table class="compare-table">
-        <thead><tr><th>Competitor</th><th>Price</th><th>vs DK</th></tr></thead>
-        <tbody>${compRows}</tbody>
-      </table>
-    </div>`;
-}
-
-
-// Pricing-position analytics over a set of results (DK vs matched competitors).
-// Each product is bucketed so the UI can list the EXACT products per category.
-function pricingInsights(results) {
-  const B = { lowest: [], highest: [], mid: [], aboveCheapest: [], headroom: [] };
-  let totalHeadroom = 0;
-  for (const r of results || []) {
-    const dk = r.dentalkart_match?.matched_price;
-    if (dk == null || dk <= 0) continue;
-    const comps = (r.competitors || [])
-      .filter(isShownMatch)
-      .map((c) => ({ id: c.competitor_id, price: c.matched_price, url: c.matched_url }))
-      .filter((c) => c.price > 0);
-    if (!comps.length) continue;
-    const prices = comps.map((c) => c.price);
-    const maxC = Math.max(...prices), minC = Math.min(...prices);
-    const headroom = dk < maxC ? Math.round(maxC - dk) : 0;
-    const row = {
-      name: r.dentalkart.name, dk, dkUrl: r.dentalkart_match?.matched_url || "",
-      comps, maxC, minC, headroom, topComp: comps.find((c) => c.price === maxC)?.id || "",
-    };
-    if (dk > maxC) B.highest.push(row);
-    else if (dk < minC) B.lowest.push(row);
-    else B.mid.push(row);
-    if (dk > minC) B.aboveCheapest.push(row);
-    if (headroom > 0) { B.headroom.push(row); totalHeadroom += headroom; }
-  }
-  const counted = B.lowest.length + B.highest.length + B.mid.length;
-  return { counted, buckets: B, totalHeadroom };
-}
-
-window._PI = {};   // elId -> rendered per-bucket product tables (for the toggles)
-const _PI_LABELS = {
-  lowest: "DK is the cheapest — products where DK beats every competitor",
-  highest: "DK is the most expensive — products priced above every competitor",
-  mid: "DK is in between — neither cheapest nor priciest",
-  aboveCheapest: "DK is above the cheapest competitor",
-  headroom: "Raise opportunities — increase price and stay under the priciest competitor",
-};
-function _piTable(rows, kind) {
-  if (!rows.length) return `<div style="font-size:13px;color:var(--ink-mute);padding:6px 2px;">No products in this category.</div>`;
-  const sorted = kind === "headroom" ? rows.slice().sort((a, b) => b.headroom - a.headroom) : rows;
-  return `<div style="overflow-x:auto;"><table class="compare-table">
-    <thead><tr><th>Product (DK ↗)</th><th>DK price</th><th>Competitors (↗)</th>${kind === "headroom" ? "<th>Raise up to</th>" : ""}</tr></thead>
-    <tbody>${sorted.map((r) => `
-      <tr>
-        <td><div class="product-name" style="max-width:none;">${r.dkUrl ? `<a class="cell-link" href="${enc(r.dkUrl)}" target="_blank" rel="noopener">${enc(r.name)} ↗</a>` : enc(r.name)}</div></td>
-        <td class="mono">${fmtMoney(r.dk)}</td>
-        <td style="font-size:12px;">${r.comps.map((c) => c.url
-          ? `<a class="cell-link" href="${enc(c.url)}" target="_blank" rel="noopener">${enc(c.id)} ${fmtMoney(c.price)} ↗</a>`
-          : `${enc(c.id)} ${fmtMoney(c.price)}`).join("<br>")}</td>
-        ${kind === "headroom" ? `<td class="mono"><strong style="color:var(--emerald,#0a7d4f);">+${fmtMoney(r.headroom)}</strong></td>` : ""}
-      </tr>`).join("")}</tbody>
-  </table></div>`;
-}
-function togglePiBucket(elId, key) {
-  const d = $(elId + "-pi-detail");
-  if (!d) return;
-  if (d.dataset.open === key) { d.style.display = "none"; d.dataset.open = ""; return; }
-  const panels = window._PI[elId] || {};
-  d.innerHTML = `<div style="font-size:12px;color:var(--ink-mute);margin:2px 0 6px;">${_PI_LABELS[key] || ""}</div>${panels[key] || ""}`;
-  d.style.display = "block"; d.dataset.open = key;
-}
-
-function renderPricingInsights(results, elId) {
-  const el = $(elId);
-  if (!el) return;
-  const s = pricingInsights(results);
-  if (!s.counted) { el.innerHTML = ""; return; }
-  const B = s.buckets;
-  // Pre-render each bucket's product table so the pills can toggle them.
-  window._PI[elId] = {
-    lowest: _piTable(B.lowest), highest: _piTable(B.highest), mid: _piTable(B.mid),
-    aboveCheapest: _piTable(B.aboveCheapest), headroom: _piTable(B.headroom, "headroom"),
-  };
-  const pill = (key, cls, label) =>
-    `<span class="pill ${cls}" style="cursor:pointer;" title="Click to see these products" onclick="togglePiBucket('${elId}','${key}')">${label} ▾</span>`;
-  el.innerHTML = `
-    <div class="card" style="margin:14px 0 18px; background:var(--surface,#fafafa);">
-      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:4px;">
-        <strong style="margin-right:6px;">Pricing insights</strong>
-        ${pill("lowest", "emerald", `Lowest on ${B.lowest.length}`)}
-        ${pill("highest", "rust", `Most expensive on ${B.highest.length}`)}
-        ${pill("mid", "", `In&nbsp;between ${B.mid.length}`)}
-        ${pill("aboveCheapest", "", `Above cheapest comp.: ${B.aboveCheapest.length}`)}
-        ${pill("headroom", "", `Raise-headroom ${fmtMoney(s.totalHeadroom)} (${B.headroom.length})`)}
-        <span style="color:var(--ink-mute);font-size:12px;">over ${s.counted} products with a competitor match · click a tag</span>
-      </div>
-      <div id="${elId}-pi-detail" data-open="" style="display:none;margin-top:10px;"></div>
-    </div>`;
-}
 
 function renderResults(data, elapsed) {
   CURRENT_RUN_ID = null;                      // live results — reviews aren't run-scoped
@@ -1693,8 +1564,6 @@ function renderResults(data, elapsed) {
   // Render the table FIRST so a later insights error can never hide the results
   // + the accuracy-review controls.
   $("results").innerHTML = compareCardsHTML(data.results);
-  try { renderPricingInsights(data.results, "pricing-insights"); }
-  catch (e) { logLine("pricing insights failed: " + e.message); }
 }
 
 /* ── Feedback ──────────────────────────── */
@@ -1766,9 +1635,14 @@ async function confirmCell(fbId, correct) {
     if (!res.ok) throw new Error("http " + res.status);
     if (correct) {
       // Flag it in the data so a later re-render (e.g. after a hide on a sibling)
-      // KEEPS the "✓ remembered" state instead of resetting to keep/hide buttons.
+      // KEEPS the "✓ remembered" state; also clear any review warning — you've
+      // vouched for this match, so "not an exact name match" must disappear.
       const c = findCompetitor(payload.product, payload.competitor_id);
-      if (c) c._kept = true;
+      if (c) { c._kept = true; c.needs_review = false; c.review_flags = []; }
+      // Remove the "⚠ not an exact name match" tag from THIS cell right now.
+      const cellBody = row.closest(".cell-body");
+      const st = cellBody && cellBody.querySelector(".cell-status");
+      if (st) st.innerHTML = `<span class="cell-tag ok">✓ kept by you</span>`;
       row.innerHTML = `<span style="font-size:11px;color:#0a7d4f;font-weight:600;">✓ remembered</span>`;
     } else {
       // Hide takes effect IMMEDIATELY in the current view — mark it hidden and
@@ -2004,7 +1878,6 @@ async function openRun(id) {
       <span class="pill">${results.length} products</span>
       <span class="pill">${hits} matches</span>
       ${acc}`;
-    renderPricingInsights(results, "run-detail-insights");
     $("run-detail").innerHTML = results.length ? compareCardsHTML(results)
       : `<div class="status-msg">No items in this run.</div>`;
   } catch (e) {
@@ -2088,7 +1961,6 @@ async function compareRuns(rerunId) {
   card.style.display = "block";
   $("run-detail-title").textContent = `Comparing run #${rerunId}…`;
   $("run-detail-summary").innerHTML = "";
-  $("run-detail-insights").innerHTML = "";
   $("run-detail").innerHTML = `<div class="status-msg">Loading both runs…</div>`;
   card.scrollIntoView({ behavior: "smooth", block: "start" });
   CURRENT_RUN_ID = null;  // comparison view is not reviewable
