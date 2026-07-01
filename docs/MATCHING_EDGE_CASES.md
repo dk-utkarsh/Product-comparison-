@@ -32,6 +32,21 @@ the suite); extraction cases are harder to unit-test (live HTML) so they live he
 5b. **Brand only in the DESCRIPTION** — title "Ketac Molar", description "Ketac
    Molar **by 3M ESPE** …". `_brand_match` also checks the first ~240 chars of the
    description for the brand/alias (guarded against "compatible with <other>").
+5d. **Same brand + FAMILY, different product LINE → reject** — DK "3M ESPE Ketac
+   **Molar**" vs Alpha Dentkart "3m Espe Ketac **Universal**" share "3m espe ketac"
+   (3 words) + the generic category "glass ionomer restorative", but molar ≠
+   universal is the actual product. `_no_shared_distinctive` now ALWAYS strips the
+   shared leading prefix (it used to keep it when ≥3 words matched, which masked the
+   line word), and `_CATEGORY_WORDS` (glass/ionomer/restorative/cement/…) are
+   dropped as non-distinctive so a shared category can't stand in for a shared
+   identity. Descriptor-only diffs ("… Restorative" vs "… Filling") still match.
+5e. **Content amount is part of the identity** (`_content_mismatch`) — a "15g Powder
+   + 7.8mL Liquid" pack ≠ a "12.5 g Powder + 8.5 ml Liquid" pack, even under the same
+   line. GENERAL: read every weight/volume quantity (g/mg/kg/ml/oz) from both sides
+   (competitor amount often in its DESCRIPTION), compare the DOMINANT amount per
+   unit; a >12% gap → reject (15 vs 12.5 g fails; 7.8 vs 8.5 mL is within tolerance;
+   an "extra free" bonus doesn't gate since the max is unchanged). Dimension units
+   (mm/cm/m) are excluded — those are sizes handled elsewhere.
 5c. **A shared generic TYPE word is NOT a brand match** — the rule that lets a
    competitor drop the manufacturer and lead with the product LINE (5a) must fire
    ONLY for a *distinctive* line, never a generic instrument type. DK "**Julldent**
