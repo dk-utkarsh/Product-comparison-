@@ -99,7 +99,9 @@ _lock = threading.Lock()
 def _conn() -> Iterator[Any]:
     """A fresh connection whose transaction commits on success / rolls back on
     error (mirrors the old `with sqlite3_conn` semantics), then closes."""
-    conn = psycopg.connect(get_settings().database_url, row_factory=dict_row)
+    # connect_timeout bounds a cold/asleep Neon: fail fast (~a Neon cold start is
+    # ~10-13s) instead of hanging a request or startup forever.
+    conn = psycopg.connect(get_settings().database_url, row_factory=dict_row, connect_timeout=20)
     try:
         with conn:  # transaction: commit on clean exit, rollback on exception
             yield conn

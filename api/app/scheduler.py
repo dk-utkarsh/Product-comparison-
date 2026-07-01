@@ -168,13 +168,19 @@ async def _loop() -> None:
 def start_scheduler() -> None:
     global _task
     s = get_settings()
-    run_store.init_db()
+    # Do NOT touch the DB before this check: when the scheduler is disabled (the
+    # default), app startup must not block on a cold/asleep Neon connection. The
+    # run-store initialises itself lazily on the first request that needs it.
     if not s.scheduled_runs_enabled:
         log.info("scheduler disabled (scheduled_runs_enabled=false)")
         return
     if not s.dk_admin_api_key:
         log.warning("scheduler enabled but no dk_admin_api_key — not starting")
         return
+    try:
+        run_store.init_db()
+    except Exception as e:  # a slow/unreachable DB must not crash startup
+        log.warning("run_store init at startup failed; will retry lazily", error=str(e))
     if _task is None or _task.done():
         _task = asyncio.create_task(_loop())
 
