@@ -93,20 +93,44 @@ _SCHEMA = [
 
 _initialized = False
 _lock = threading.Lock()
+_shared_conn: Any = None
+_conn_lock = threading.RLock()
 
 
 @contextmanager
 def _conn() -> Iterator[Any]:
-    """A fresh connection whose transaction commits on success / rolls back on
-    error (mirrors the old `with sqlite3_conn` semantics), then closes."""
-    # connect_timeout bounds a cold/asleep Neon: fail fast (~a Neon cold start is
-    # ~10-13s) instead of hanging a request or startup forever.
-    conn = psycopg.connect(get_settings().database_url, row_factory=dict_row, connect_timeout=20)
-    try:
-        with conn:  # transaction: commit on clean exit, rollback on exception
-            yield conn
-    finally:
-        conn.close()
+    """ONE process-wide psycopg connection, REUSED across all requests and serialized
+    by a lock. A fresh connect to a remote Neon (another region, occasionally a flaky
+    pooler IP) costs ~0.3-30s — paying that per request (or even per worker thread)
+    made every /runs refresh slow. With a single shared connection we connect ~once;
+    every call after is just the query (~0.1-0.7s). The lock serialises access
+    (psycopg connections aren't concurrency-safe) — fine for this low-traffic store.
+    A stale connection (Neon idle-dropped it) is discarded so the next call reconnects.
+    connect_timeout bounds a cold start / unreachable IP so a bad connect can't hang
+    forever."""
+    global _shared_conn
+    with _conn_lock:
+        if _shared_conn is None or _shared_conn.closed:
+            # keepalives + tcp_user_timeout make the OS notice a dead/stalled socket
+            # in ~15s instead of hanging for minutes; statement_timeout bounds a slow
+            # query. So a flaky network fails FAST (then reconnects) rather than
+            # freezing the page.
+            _shared_conn = psycopg.connect(
+                get_settings().database_url, row_factory=dict_row,
+                connect_timeout=12, keepalives=1, keepalives_idle=15,
+                keepalives_interval=5, keepalives_count=3, tcp_user_timeout=15000,
+                options="-c statement_timeout=15000")
+        conn = _shared_conn
+        try:
+            with conn.transaction():
+                yield conn
+        except (psycopg.OperationalError, psycopg.InterfaceError):
+            try:
+                conn.close()
+            except Exception:
+                pass
+            _shared_conn = None
+            raise
 
 
 def init_db() -> None:
